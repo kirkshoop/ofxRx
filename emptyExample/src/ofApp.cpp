@@ -7,25 +7,56 @@ void ofApp::setup(){
     message = "Time flies like an arrow";
     
     dest_updates.reset(rx::make_observer_dynamic<long>(updates.get_subscriber().get_observer()));
+    dest_key_releases.reset(rx::make_observer_dynamic<int>(key_releases.get_subscriber().get_observer()));
 
     mouse.setup();
+    gui.setup();
+    
+    //
+    // calculate orbit position based on time
+    //
 
     auto orbit_points = updates.get_observable().
         map([](long tick){return ofMap(tick % 1000, 0, 1000, 0.0, 1.0);}).
-        map([](float t){return ofPoint(50 * std::cos(t * 2 * 3.14), 50 * std::sin(t * 2 * 3.14));}).
+        map([this](float t){return orbit_circle ? ofPoint(50 * std::cos(t * 2 * 3.14), 50 * std::sin(t * 2 * 3.14)) : ofPoint();}).
         as_dynamic();
+
+    //
+    // use most recently selected source of points
+    //
 
     auto center_points = center_source.get_observable().
         switch_on_next().
         as_dynamic();
+
+    //
+    // collect rolling window of past points
+    //
     
+    center_points.
+        combine_latest(updates.get_observable()).
+        subscribe([=](const std::tuple<ofPoint, long >& pt){
+            move_window.push_back(pt);
+            while(move_window.size() > 1 && std::get<1>(move_window.front()) < std::get<1>(pt) - (message.size() * 200)) {
+                move_window.pop_front();
+            }
+        });
+
+    //
+    // adding current center to current orbit position results in a stream of points that orbit the center points.
+    //
+
     orbit_points.
-    combine_latest(std::plus<ofPoint>(), center_points).
+        combine_latest(std::plus<ofPoint>(), center_points).
         subscribe(
               [this](ofPoint c){
                   center = c;
               });
-    
+
+    //
+    // define point sources
+    //
+
     auto pointFromMouse = [](ofMouseEventArgs e){
         return ofPoint(e.x, e.y);
     };
@@ -37,15 +68,6 @@ void ofApp::setup(){
         merge().
         map(pointFromMouse).
         as_dynamic();
-
-    all_movement.
-        combine_latest(updates.get_observable()).
-        subscribe([=](const std::tuple<ofPoint, long >& pt){
-            move_window.push_back(pt);
-            while(move_window.size() > 1 && std::get<1>(move_window.front()) < std::get<1>(pt) - 10000) {
-                move_window.pop_front();
-            }
-        });
 
     auto just_moves = mouse.moves().
         map(pointFromMouse).
@@ -60,16 +82,53 @@ void ofApp::setup(){
 
     auto sources = rx::util::to_vector({window_center, all_movement, just_moves, just_drags, never});
 
+    //
+    // display gui
+    //
+    
+    auto sourcesText = rx::util::to_vector<string>({"window_center", "all_movement", "just_moves", "just_drags", "never"});
+
+    gui.add(show_circle.setup("circle", true));
+    gui.add(orbit_circle.setup("circle orbits", true));
+    gui.add(show_text.setup("flying text", false));
+    gui.add(flyingText.setup("flying text", message));
+	gui.add(selected.setup("select source", 0, 0, sources.size()));
+    gui.add(selectedText.setup("selected source", sourcesText[0]));
+
+    //
+    // edit flying text
+    //
+
+    key_releases.get_observable().
+        filter([](int key){ return key == OF_KEY_BACKSPACE; }).
+        subscribe([this](int){
+            if (!message.empty()) {
+                message.erase(--message.end());
+            }
+            flyingText = message;
+        });
+
+    key_releases.get_observable().
+        filter([](int key){ return !(key & OF_KEY_MODIFIER) && key != OF_KEY_BACKSPACE; }).
+        subscribe([this](char c){
+            message.push_back(c);
+            flyingText = message;
+        });
+
+    //
+    // switch source on selection changes
+    //
+    
     auto dest_center = center_source.get_subscriber().get_observer();
 
     dest_center.on_next(window_center);
     
-    mouse.releases().
-        subscribe(
-            [=](ofMouseEventArgs e){
-                selected += e.x < (ofGetWidth()/4) ? -1 : e.x < (ofGetWidth() - (ofGetWidth()/4)) ? 0 : 1;
-                dest_center.on_next(sources[selected % sources.size()]);
-            });
+    selections.setup(selected).
+        subscribe([=](int selected){
+            dest_center.on_next(sources[selected % sources.size()]);
+            string msg = sourcesText[selected % sourcesText.size()];
+            selectedText = msg;
+        });
 }
 
 //--------------------------------------------------------------
@@ -79,19 +138,24 @@ void ofApp::update(){
 
 //--------------------------------------------------------------
 void ofApp::draw(){
+    ofBackgroundGradient(ofColor::white, ofColor::gray);
 
-    ofCircle(center, 20);
-    
-    auto sources = rx::util::to_vector<string>({"window_center", "all_movement", "just_moves", "just_drags", "never"});
+    ofFill();
 
-    string msg = "releasing a click or drag on the left side of the window causes the selected source to change to the previous\n";
-    msg += "releasing a click or drag on the right side of the window causes the selected source to change to the next\n";
-    msg += "releasing the mouse in the middle will not change the selected source\n";
-    msg += "the selected source is: " + sources[selected % sources.size()];
+    //
+    // display circle
+    //
 
-    ofDrawBitmapStringHighlight(msg, 30,30);
-    
-    if (!move_window.empty()) {
+	ofSetColor(ofColor(0x66,0x33,0x99));
+    if (show_circle) {
+        ofCircle(center, 20);
+    }
+
+    //
+    // display flying text
+    //
+
+    if (show_text && !move_window.empty()) {
         auto pt_cursor = move_window.begin();
         auto index = 0;
         auto now = ofGetElapsedTimeMillis();
@@ -115,6 +179,8 @@ void ofApp::draw(){
             ++index;
         }
     }
+
+    gui.draw();
 }
 
 //--------------------------------------------------------------
@@ -124,7 +190,7 @@ void ofApp::keyPressed(int key){
 
 //--------------------------------------------------------------
 void ofApp::keyReleased(int key){
-
+    dest_key_releases->on_next(key);
 }
 
 //--------------------------------------------------------------
