@@ -47,6 +47,54 @@ protected:
     rx::observer<ofMouseEventArgs> dest_releases;
 };
 
+class Keyboard {
+public:
+    
+    Keyboard();
+    ~Keyboard();
+    
+    void setup();
+    void clear();
+    
+    rx::observable<ofKeyEventArgs> presses();
+    rx::observable<ofKeyEventArgs> releases();
+    
+    void keyPressed(ofKeyEventArgs& a);
+    void keyReleased(ofKeyEventArgs& a);
+    
+protected:
+    bool registered;
+    rx::subjects::subject<ofKeyEventArgs> sub_presses;
+    rx::observer<ofKeyEventArgs> dest_presses;
+    rx::subjects::subject<ofKeyEventArgs> sub_releases;
+    rx::observer<ofKeyEventArgs> dest_releases;
+};
+
+struct Updates
+{
+public:
+    ~Updates();
+    Updates();
+    
+    void setup();
+    void clear();
+    
+    rx::observable<ofEventArgs> events();
+    
+    rx::observable<unsigned long long> milliseconds();
+    
+    rx::observable<unsigned long long> microseconds();
+    
+    rx::observable<float> floats();
+
+    void update(ofEventArgs& a);
+    
+private:
+    bool registered;
+    rx::subjects::subject<ofEventArgs> sub_updates;
+    rx::observer<ofEventArgs> dest_updates;
+};
+
 }
 
 #endif

@@ -1,27 +1,27 @@
 #include "ofApp.h"
 
 const int FLYING_DELAY_MS = 200;
-const int CIRCLE_RADIUS = 20;
 
 //--------------------------------------------------------------
 void ofApp::setup(){
-    selected = 0;
+    
+    ofSetCircleResolution(100);
+    ofEnableSmoothing();
     
     message = "Time flies like an arrow";
     
-    dest_updates.reset(rx::make_observer_dynamic<long>(updates.get_subscriber().get_observer()));
-    dest_key_releases.reset(rx::make_observer_dynamic<int>(key_releases.get_subscriber().get_observer()));
-
     mouse.setup();
+    keyboard.setup();
+    updates.setup();
     gui.setup();
-    
+
     //
     // calculate orbit position based on time
     //
 
-    auto orbit_points = updates.get_observable().
-        map([](long tick){return ofMap(tick % 1000, 0, 1000, 0.0, 1.0);}).
-        map([this](float t){return orbit_circle ? ofPoint(radius * std::cos(t * 2 * 3.14), radius * std::sin(t * 2 * 3.14)) : ofPoint();}).
+    auto orbit_points = updates.milliseconds().
+        map([this](unsigned long long tick){return ofMap(tick % int(orbit_period * 1000), 0, int(orbit_period * 1000), 0.0, 1.0);}).
+        map([this](float t){return orbit_circle ? ofPoint(orbit_radius * std::cos(t * 2 * 3.14), orbit_radius * std::sin(t * 2 * 3.14)) : ofPoint();}).
         as_dynamic();
 
     //
@@ -37,8 +37,8 @@ void ofApp::setup(){
     //
     
     center_points.
-        combine_latest(updates.get_observable()).
-        subscribe([=](const std::tuple<ofPoint, long >& pt){
+        combine_latest(updates.milliseconds()).
+        subscribe([=](const move_record& pt){
             move_window.push_back(pt);
             while(move_window.size() > 1 && std::get<1>(move_window.front()) < std::get<1>(pt) - (message.size() * FLYING_DELAY_MS)) {
                 move_window.pop_front();
@@ -64,7 +64,7 @@ void ofApp::setup(){
         return ofPoint(e.x, e.y);
     };
     
-    auto window_center = rx::observable<>::just(ofPoint((ofGetWidth()/2) - CIRCLE_RADIUS, (ofGetHeight()/2) - CIRCLE_RADIUS)).
+    auto window_center = rx::observable<>::just(ofPoint((ofGetWidth()/2) - circle_radius, (ofGetHeight()/2) - circle_radius)).
         as_dynamic();
     
     auto all_movement = rx::observable<>::from(mouse.moves(), mouse.drags()).
@@ -95,7 +95,9 @@ void ofApp::setup(){
     gui.add(orbit_circle.setup("circle orbits", true));
     gui.add(show_text.setup("flying text", false));
     gui.add(flyingText.setup("flying text", message));
-	gui.add(radius.setup("orbit radius", 50, 10, 100));
+    gui.add(circle_radius.setup("circle radius", 20.0, 10.0, 600.0));
+	gui.add(orbit_radius.setup("orbit radius", 50.0, 10.0, 600.0));
+    gui.add(orbit_period.setup("orbit period", 1.0, 0.5, 5.0));
 	gui.add(selected.setup("select source", 0, 0, sources.size()));
     gui.add(selectedText.setup("selected source", sourcesText[0]));
 
@@ -106,7 +108,8 @@ void ofApp::setup(){
     // edit flying text
     //
 
-    key_releases.get_observable().
+    keyboard.releases().
+        map([](ofKeyEventArgs a){return a.key;}).
         filter([](int key){ return key == OF_KEY_BACKSPACE; }).
         subscribe([this](int){
             if (!message.empty()) {
@@ -116,7 +119,8 @@ void ofApp::setup(){
             flyingText.setSize((13 + message.size()) * 8.5, flyingText.getHeight());
         });
 
-    key_releases.get_observable().
+    keyboard.releases().
+        map([](ofKeyEventArgs a){return a.key;}).
         filter([](int key){ return !(key & OF_KEY_MODIFIER) && key != OF_KEY_BACKSPACE; }).
         subscribe([this](char c){
             message.push_back(c);
@@ -142,12 +146,8 @@ void ofApp::setup(){
 }
 
 //--------------------------------------------------------------
-void ofApp::update(){
-    dest_updates->on_next(ofGetElapsedTimeMillis());
-}
-
-//--------------------------------------------------------------
 void ofApp::draw(){
+
     ofBackgroundGradient(ofColor::white, ofColor::gray);
 
     ofFill();
@@ -157,8 +157,9 @@ void ofApp::draw(){
     //
 
 	ofSetColor(ofColor(0x66,0x33,0x99));
+
     if (show_circle) {
-        ofCircle(center, CIRCLE_RADIUS);
+        ofCircle(center, circle_radius);
     }
 
     //
@@ -177,7 +178,7 @@ void ofApp::draw(){
             std::tie(at, tick) = move_window.front();
             auto time = now - (FLYING_DELAY_MS * index);
             auto found = std::find_if(move_window.rbegin(), move_window.rend(),
-                [&](std::tuple<ofPoint, long> tp){
+                [&](const move_record& tp){
                     return time > std::get<1>(tp);
                 });
             if (found == move_window.rend()) {
@@ -191,16 +192,6 @@ void ofApp::draw(){
     }
 
     gui.draw();
-}
-
-//--------------------------------------------------------------
-void ofApp::keyPressed(int key){
-
-}
-
-//--------------------------------------------------------------
-void ofApp::keyReleased(int key){
-    dest_key_releases->on_next(key);
 }
 
 //--------------------------------------------------------------

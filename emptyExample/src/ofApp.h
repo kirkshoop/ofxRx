@@ -3,7 +3,7 @@
 #include "ofMain.h"
 #include "ofxGui.h"
 
-#include "rxof_mouse.h"
+#include "rxof.h"
 
 template<class T>
 struct ofx_observe
@@ -12,11 +12,14 @@ struct ofx_observe
         :
         dest_t(rx::make_observer_dynamic<T>(sub_t.get_subscriber().get_observer()))
     {
+        registered = false;
     }
     
     template<class OfxControl>
     rx::observable<T> setup(OfxControl& c) {
-        c.addListener(this, &ofx_observe::notification);
+        if (!registered) {
+            c.addListener(this, &ofx_observe::notification);
+        }
         return sub_t.get_observable().as_dynamic();
     }
     
@@ -25,6 +28,7 @@ struct ofx_observe
     }
     
 private:
+    bool registered;
     rx::subjects::subject<T> sub_t;
     rx::observer<T> dest_t;
 };
@@ -32,21 +36,22 @@ private:
 class ofApp : public ofBaseApp{
 	public:
 		void setup();
-		void update();
 		void draw();
 		
-		void keyPressed(int key);
-		void keyReleased(int key);
 		void windowResized(int w, int h);
 		void dragEvent(ofDragInfo dragInfo);
 		void gotMessage(ofMessage msg);
     
     rxof::Mouse mouse;
+    rxof::Keyboard keyboard;
+    rxof::Updates updates;
 
 	ofxToggle show_circle;
     ofxToggle orbit_circle;
 	ofxToggle show_text;
-    ofxIntSlider radius;
+    ofxFloatSlider circle_radius;
+    ofxFloatSlider orbit_radius;
+    ofxFloatSlider orbit_period;
     ofxIntSlider selected;
     ofxLabel selectedText;
     ofxLabel flyingText;
@@ -56,11 +61,8 @@ class ofApp : public ofBaseApp{
 	ofxPanel gui;
 
     rx::subjects::subject<rx::observable<ofPoint>> center_source;
-    rx::subjects::subject<long> updates;
-    rx::util::detail::maybe<rx::observer<long>> dest_updates;
-    rx::subjects::subject<int> key_releases;
-    rx::util::detail::maybe<rx::observer<int>> dest_key_releases;
     ofPoint center;
     std::string message;
-    std::deque<std::tuple<ofPoint, long>> move_window;
+    typedef std::tuple<ofPoint, unsigned long long> move_record;
+    std::deque<move_record> move_window;
 };
