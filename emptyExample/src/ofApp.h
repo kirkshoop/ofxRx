@@ -46,6 +46,7 @@ class ofApp : public ofBaseApp{
 	ofxToggle show_circle;
     ofxToggle orbit_circle;
 	ofxToggle show_text;
+    ofxIntSlider radius;
     ofxIntSlider selected;
     ofxLabel selectedText;
     ofxLabel flyingText;

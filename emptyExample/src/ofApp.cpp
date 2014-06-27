@@ -1,5 +1,8 @@
 #include "ofApp.h"
 
+const int FLYING_DELAY_MS = 200;
+const int CIRCLE_RADIUS = 20;
+
 //--------------------------------------------------------------
 void ofApp::setup(){
     selected = 0;
@@ -18,7 +21,7 @@ void ofApp::setup(){
 
     auto orbit_points = updates.get_observable().
         map([](long tick){return ofMap(tick % 1000, 0, 1000, 0.0, 1.0);}).
-        map([this](float t){return orbit_circle ? ofPoint(50 * std::cos(t * 2 * 3.14), 50 * std::sin(t * 2 * 3.14)) : ofPoint();}).
+        map([this](float t){return orbit_circle ? ofPoint(radius * std::cos(t * 2 * 3.14), radius * std::sin(t * 2 * 3.14)) : ofPoint();}).
         as_dynamic();
 
     //
@@ -37,7 +40,7 @@ void ofApp::setup(){
         combine_latest(updates.get_observable()).
         subscribe([=](const std::tuple<ofPoint, long >& pt){
             move_window.push_back(pt);
-            while(move_window.size() > 1 && std::get<1>(move_window.front()) < std::get<1>(pt) - (message.size() * 200)) {
+            while(move_window.size() > 1 && std::get<1>(move_window.front()) < std::get<1>(pt) - (message.size() * FLYING_DELAY_MS)) {
                 move_window.pop_front();
             }
         });
@@ -61,7 +64,7 @@ void ofApp::setup(){
         return ofPoint(e.x, e.y);
     };
     
-    auto window_center = rx::observable<>::just(ofPoint((ofGetWidth()/2) - 20, (ofGetHeight()/2) - 20)).
+    auto window_center = rx::observable<>::just(ofPoint((ofGetWidth()/2) - CIRCLE_RADIUS, (ofGetHeight()/2) - CIRCLE_RADIUS)).
         as_dynamic();
     
     auto all_movement = rx::observable<>::from(mouse.moves(), mouse.drags()).
@@ -92,8 +95,12 @@ void ofApp::setup(){
     gui.add(orbit_circle.setup("circle orbits", true));
     gui.add(show_text.setup("flying text", false));
     gui.add(flyingText.setup("flying text", message));
+	gui.add(radius.setup("orbit radius", 50, 10, 100));
 	gui.add(selected.setup("select source", 0, 0, sources.size()));
     gui.add(selectedText.setup("selected source", sourcesText[0]));
+
+    flyingText.setSize((13 + message.size()) * 8.5, flyingText.getHeight());
+    selectedText.setSize((17 + sourcesText[0].size()) * 8.5, selectedText.getHeight());
 
     //
     // edit flying text
@@ -106,6 +113,7 @@ void ofApp::setup(){
                 message.erase(--message.end());
             }
             flyingText = message;
+            flyingText.setSize((13 + message.size()) * 8.5, flyingText.getHeight());
         });
 
     key_releases.get_observable().
@@ -113,6 +121,7 @@ void ofApp::setup(){
         subscribe([this](char c){
             message.push_back(c);
             flyingText = message;
+            flyingText.setSize((13 + message.size()) * 8.5, flyingText.getHeight());
         });
 
     //
@@ -128,6 +137,7 @@ void ofApp::setup(){
             dest_center.on_next(sources[selected % sources.size()]);
             string msg = sourcesText[selected % sourcesText.size()];
             selectedText = msg;
+            selectedText.setSize((17 + msg.size()) * 8.5, selectedText.getHeight());
         });
 }
 
@@ -148,7 +158,7 @@ void ofApp::draw(){
 
 	ofSetColor(ofColor(0x66,0x33,0x99));
     if (show_circle) {
-        ofCircle(center, 20);
+        ofCircle(center, CIRCLE_RADIUS);
     }
 
     //
@@ -165,7 +175,7 @@ void ofApp::draw(){
             ofPoint at;
             long tick;
             std::tie(at, tick) = move_window.front();
-            auto time = now - (200 * index);
+            auto time = now - (FLYING_DELAY_MS * index);
             auto found = std::find_if(move_window.rbegin(), move_window.rend(),
                 [&](std::tuple<ofPoint, long> tp){
                     return time > std::get<1>(tp);
