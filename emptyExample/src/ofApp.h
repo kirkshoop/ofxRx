@@ -22,4 +22,6 @@ class ofApp : public ofBaseApp{
     rx::util::detail::maybe<rx::observer<long>> dest_updates;
     ofPoint center;
     int selected;
+    std::string message;
+    std::deque<std::tuple<ofPoint, long>> move_window;
 };
