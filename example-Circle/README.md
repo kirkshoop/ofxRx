@@ -1,0 +1,1 @@
+This is based on a presentation by David Sankel @camio at cppnow 2014 [The Future of Accelerator Programming in C++](https://github.com/boostcon/cppnow_presentations_2014/blob/master/files/CppNow2014_Future_of_Accelerator_Programming.pdf?raw=true)
