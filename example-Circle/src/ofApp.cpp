@@ -2,6 +2,17 @@
 
 const int FLYING_DELAY_MS = 200;
 
+ofApp::~ofApp()
+{
+    dest_center.on_completed();
+}
+
+ofApp::ofApp()
+    :
+    dest_center(center_source.get_subscriber().as_dynamic())
+{
+}
+
 //--------------------------------------------------------------
 void ofApp::setup(){
     
@@ -17,8 +28,18 @@ void ofApp::setup(){
     //
 
     auto orbit_points = updates.milliseconds().
-        map([this](unsigned long long tick){return ofMap(tick % int(orbit_period * 1000), 0, int(orbit_period * 1000), 0.0, 1.0);}).
-        map([this](float t){return orbit_circle ? ofPoint(orbit_radius * std::cos(t * 2 * 3.14), orbit_radius * std::sin(t * 2 * 3.14)) : ofPoint();}).
+        map(
+            [this](unsigned long long tick){
+                // map the tick into the range 0.0-1.0
+                return ofMap(tick % int(orbit_period * 1000), 0, int(orbit_period * 1000), 0.0, 1.0);
+            }).
+        map(
+            [this](float t){
+                // map the time value to a point on a circle
+                return orbit_circle ?
+                    ofPoint(orbit_radius * std::cos(t * 2 * 3.14), orbit_radius * std::sin(t * 2 * 3.14)) :
+                    ofPoint();
+            }).
         as_dynamic();
 
     //
@@ -48,7 +69,10 @@ void ofApp::setup(){
         return ofPoint(e.x, e.y);
     };
     
-    auto window_center = rx::observable<>::just(ofPoint((ofGetWidth()/2) - circle_radius, (ofGetHeight()/2) - circle_radius)).
+    auto window_center = rx::observable<>::defer(
+        [](){
+            return rx::observable<>::just(ofPoint(ofGetWidth()/2, ofGetHeight()/2));
+        }).
         as_dynamic();
     
     auto all_movement = rx::observable<>::from(mouse.moves(), mouse.drags()).
@@ -125,6 +149,10 @@ void ofApp::draw(){
 //--------------------------------------------------------------
 void ofApp::windowResized(int w, int h){
 
+    if (selected == 0) {
+        auto window_center = rx::observable<>::just(ofPoint(ofGetWidth()/2, ofGetHeight()/2));
+        dest_center.on_next(window_center);
+    }
 }
 
 //--------------------------------------------------------------

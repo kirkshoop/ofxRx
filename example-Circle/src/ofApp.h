@@ -2,11 +2,14 @@
 
 #include "ofMain.h"
 #include "ofxGui.h"
-
 #include "ofxRx.h"
+namespace rx=ofxRx::rx;
 
 class ofApp : public ofBaseApp{
 	public:
+        ~ofApp();
+        ofApp();
+
 		void setup();
 		void draw();
 		
@@ -14,8 +17,8 @@ class ofApp : public ofBaseApp{
 		void dragEvent(ofDragInfo dragInfo);
 		void gotMessage(ofMessage msg);
     
-    rxof::Mouse mouse;
-    rxof::Updates updates;
+    ofxRx::Mouse mouse;
+    ofxRx::Updates updates;
 
 	ofxToggle show_circle;
     ofxToggle orbit_circle;
@@ -25,10 +28,11 @@ class ofApp : public ofBaseApp{
     ofxIntSlider selected;
     ofxLabel selectedText;
     
-    rxof::observe_source<int> selections;
+    ofxRx::observe_source<int> selections;
 
 	ofxPanel gui;
 
     rx::subjects::subject<rx::observable<ofPoint>> center_source;
+    rx::subscriber<rx::observable<ofPoint>> dest_center;
     ofPoint center;
 };

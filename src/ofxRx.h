@@ -1,128 +1,37 @@
 //
-//  rxofmouse.h
+//  ofxRx.h
 //
 
-#ifndef simpleEventsExample_rxofmouse_h
-#define simpleEventsExample_rxofmouse_h
+#ifndef OFXRX_H
+#define OFXRX_H
 
+#include "ofMain.h"
+
+//
+// openframeworks uses some macros that are not disambiguated
+//
 #undef B0
 #undef all_true
 #undef check
 
 #include <rxcpp/rx.hpp>
+
+namespace ofx {
+
+namespace rx {
+
 namespace rx=rxcpp;
-
-#include "ofMain.h"
-
-namespace rxof {
-
-template<class T>
-struct observe_source
-{
-    observe_source()
-    :
-    dest_t(rx::make_observer_dynamic<T>(sub_t.get_subscriber().get_observer()))
-    {
-        registered = false;
-    }
-    
-    template<class OfxSource>
-    rx::observable<T> setup(OfxSource& c) {
-        if (!registered) {
-            c.addListener(this, &observe_source::notification);
-        }
-        return sub_t.get_observable().as_dynamic();
-    }
-    
-    void notification(T & t){
-        dest_t.on_next(t);
-    }
-    
-private:
-    bool registered;
-    rx::subjects::subject<T> sub_t;
-    rx::observer<T> dest_t;
-};
-    
-class Mouse {
-public:
-
-    Mouse();
-    ~Mouse();
-   
-    void setup();
-    void clear();
-    
-    rx::observable<ofMouseEventArgs> moves();
-    rx::observable<ofMouseEventArgs> drags();
-    rx::observable<ofMouseEventArgs> presses();
-    rx::observable<ofMouseEventArgs> releases();
-
-    void mouseMoved(ofMouseEventArgs & args);
-    void mouseDragged(ofMouseEventArgs & args);
-    void mousePressed(ofMouseEventArgs & args);
-    void mouseReleased(ofMouseEventArgs & args);
-
-protected:
-    bool registered;
-    rx::subjects::subject<ofMouseEventArgs> sub_moves;
-    rx::observer<ofMouseEventArgs> dest_moves;
-    rx::subjects::subject<ofMouseEventArgs> sub_drags;
-    rx::observer<ofMouseEventArgs> dest_drags;
-    rx::subjects::subject<ofMouseEventArgs> sub_presses;
-    rx::observer<ofMouseEventArgs> dest_presses;
-    rx::subjects::subject<ofMouseEventArgs> sub_releases;
-    rx::observer<ofMouseEventArgs> dest_releases;
-};
-
-class Keyboard {
-public:
-    
-    Keyboard();
-    ~Keyboard();
-    
-    void setup();
-    void clear();
-    
-    rx::observable<ofKeyEventArgs> presses();
-    rx::observable<ofKeyEventArgs> releases();
-    
-    void keyPressed(ofKeyEventArgs& a);
-    void keyReleased(ofKeyEventArgs& a);
-    
-protected:
-    bool registered;
-    rx::subjects::subject<ofKeyEventArgs> sub_presses;
-    rx::observer<ofKeyEventArgs> dest_presses;
-    rx::subjects::subject<ofKeyEventArgs> sub_releases;
-    rx::observer<ofKeyEventArgs> dest_releases;
-};
-
-struct Updates
-{
-public:
-    ~Updates();
-    Updates();
-    
-    void setup();
-    void clear();
-    
-    rx::observable<ofEventArgs> events();
-    
-    rx::observable<unsigned long long> milliseconds();
-    
-    rx::observable<unsigned long long> microseconds();
-    
-    rx::observable<float> floats();
-
-    void update(ofEventArgs& a);
-    
-private:
-    bool registered;
-    rx::subjects::subject<ofEventArgs> sub_updates;
-    rx::observer<ofEventArgs> dest_updates;
-};
+namespace rxsc=rxcpp::rxsc;
 
 }
+
+}
+
+namespace ofxRx = ofx::rx;
+
+#include "ofxRxObservableFrom.h"
+#include "ofxRxMouse.h"
+#include "ofxRxKeyboard.h"
+#include "ofxRxUpdates.h"
 
 #endif
