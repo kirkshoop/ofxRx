@@ -37,10 +37,11 @@ void ofApp::setup(){
                 updates_count = stringFromCount(count);
             });
 
-    auto thread_coordination = rx::serialize_one_worker(rx::schedulers::make_new_thread());
+    auto thread_coordination = rx::serialize_new_thread();
 
-    rx::observable<>::interval(start + step, step, thread_coordination).
-        synchronize(updates_coordination).ref_count().
+    rx::observable<>::interval(start + step, step).
+        subscribe_on(thread_coordination).
+        observe_on(updates_coordination).
         subscribe(
             [=](long count){
                 thread_count = stringFromCount(count);
