@@ -30,12 +30,12 @@ void Updates::clear() {
     }
 }
 
-rx::observable<ofEventArgs> Updates::events()
+rx::observable<ofEventArgs> Updates::events() const
 {
     return sub_updates.get_observable().as_dynamic();
 }
 
-rx::observable<unsigned long long> Updates::milliseconds()
+rx::observable<unsigned long long> Updates::milliseconds() const
 {
     return sub_updates.
     get_observable().
@@ -43,7 +43,7 @@ rx::observable<unsigned long long> Updates::milliseconds()
     as_dynamic();
 }
 
-rx::observable<unsigned long long> Updates::microseconds()
+rx::observable<unsigned long long> Updates::microseconds() const
 {
     return sub_updates.
     get_observable().
@@ -51,7 +51,7 @@ rx::observable<unsigned long long> Updates::microseconds()
     as_dynamic();
 }
 
-rx::observable<float> Updates::floats()
+rx::observable<float> Updates::floats() const
 {
     return sub_updates.
     get_observable().

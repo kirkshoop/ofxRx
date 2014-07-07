@@ -9,14 +9,12 @@ void ofApp::setup(){
 
     ofEnableSmoothing();
 
-    updates.setup();
-    
-    auto start = updates.get_scheduler().now();
+    auto start = ofx::rx::make_update().now();
     auto step = milliseconds(500);
     
     auto stringFromCount = [=](long count){
         std::stringstream ss;
-        auto tick = updates.get_scheduler().now();
+        auto tick = ofx::rx::make_update().now();
         auto second_ms = duration_cast<milliseconds>(seconds(1));
         auto actual_ms = duration_cast<milliseconds>(tick - start);
         auto expected_ms = duration_cast<milliseconds>(count * step);
@@ -29,19 +27,15 @@ void ofApp::setup(){
         return ss.str();
     };
 
-    auto updates_coordination = updates.get_coordination();
-
-    rx::observable<>::interval(start + step, step, updates_coordination).
+    rx::observable<>::interval(start + step, step, ofx::rx::serialize_update()).
         subscribe(
             [=](long count){
                 updates_count = stringFromCount(count);
             });
 
-    auto thread_coordination = rx::serialize_new_thread();
-
     rx::observable<>::interval(start + step, step).
-        subscribe_on(thread_coordination).
-        observe_on(updates_coordination).
+        subscribe_on(rx::serialize_new_thread()).
+        observe_on(ofx::rx::serialize_update()).
         subscribe(
             [=](long count){
                 thread_count = stringFromCount(count);

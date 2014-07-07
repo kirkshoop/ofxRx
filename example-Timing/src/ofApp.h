@@ -14,7 +14,6 @@ class ofApp : public ofBaseApp{
 		void dragEvent(ofDragInfo dragInfo);
 		void gotMessage(ofMessage msg);
     
-    ofxRx::Updates updates;
     std::string updates_count;
     std::string thread_count;
 };
