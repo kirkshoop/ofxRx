@@ -60,6 +60,8 @@ private:
             {
             }
 
+            Updates source;
+
             rx::composite_subscription lifetime;
             mutable std::mutex lock;
             mutable queue_item_time queue;
@@ -78,12 +80,14 @@ private:
         {
         }
 
-        worker_type(rx::composite_subscription cs, rx::observable<ofEventArgs> d)
+        worker_type(rx::composite_subscription cs)
             : state(std::make_shared<worker_state>(cs))
         {
+            state->source.setup();
+
             auto keepAlive = state;
 
-            d.subscribe(
+            state->source.events().subscribe(
                 state->lifetime,
                 [keepAlive](const ofEventArgs&){
 
@@ -126,12 +130,9 @@ private:
         }
     };
 
-    Updates source;
-
 public:
     explicit update()
     {
-        source.setup();
     }
     virtual ~update()
     {
@@ -142,7 +143,7 @@ public:
     }
 
     virtual rxsc::worker create_worker(rx::composite_subscription cs) const {
-        return rxsc::worker(cs, std::shared_ptr<worker_type>(new worker_type(cs, source.events())));
+        return rxsc::worker(cs, std::shared_ptr<worker_type>(new worker_type(cs)));
     }
 };
 

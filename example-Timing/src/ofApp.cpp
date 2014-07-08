@@ -28,17 +28,19 @@ void ofApp::setup(){
     };
 
     rx::observable<>::interval(start + step, step, ofx::rx::serialize_update()).
+        map(stringFromCount).
         subscribe(
-            [=](long count){
-                updates_count = stringFromCount(count);
+            [=](const std::string& message){
+                updates_count = message;
             });
 
     rx::observable<>::interval(start + step, step).
+        map(stringFromCount).
         subscribe_on(rx::serialize_new_thread()).
         observe_on(ofx::rx::serialize_update()).
         subscribe(
-            [=](long count){
-                thread_count = stringFromCount(count);
+            [=](const std::string& message){
+                thread_count = message;
             });
 }
 
