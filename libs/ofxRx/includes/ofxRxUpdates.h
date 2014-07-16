@@ -1,4 +1,5 @@
 
+
 namespace ofx {
 
 namespace rx {
@@ -27,7 +28,6 @@ private:
     rx::subjects::subject<ofEventArgs> sub_updates;
     rx::subscriber<ofEventArgs> dest_updates;
 };
-
 
 struct update : public rxsc::scheduler_interface
 {
@@ -159,6 +159,11 @@ inline const rx::observe_on_one_worker& observe_on_update() {
 
 inline const rx::serialize_one_worker& serialize_update() {
     static auto su = rx::serialize_one_worker(make_update());
+    return su;
+}
+    
+inline const rx::synchronize_in_one_worker& synchronize_update() {
+    static auto su = rx::synchronize_in_one_worker(make_update());
     return su;
 }
 
