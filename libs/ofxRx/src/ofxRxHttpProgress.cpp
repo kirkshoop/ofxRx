@@ -24,10 +24,6 @@
 
 
 #include <ofxRxHttp.h>
-#include "Poco/Buffer.h"
-#include "ofx/IO/ByteBuffer.h"
-#include "ofx/IO/ByteBufferUtils.h"
-
 
 namespace ofx {
 
@@ -41,6 +37,7 @@ HttpProgressState::HttpProgressState(std::shared_ptr<HTTP::BaseRequest> request,
     _request(request),
     _response(response),
     _context(context),
+    pool(std::make_shared<Poco::MemoryPool>(bufferSize + BufferRef<char>::overhead_size)),
     dest_request(sub_request.get_subscriber().as_dynamic()),
     dest_response(sub_response.get_subscriber().as_dynamic()),
     dest_body(sub_body.get_subscriber().as_dynamic())
@@ -62,58 +59,51 @@ void HttpProgressState::submit()
     registerClientFilterEvents(this);
 
     HTTP::DefaultClient::submit(*_request, *_response, *_context);
-
-    unregisterClientFilterEvents(this);
-    unregisterClientProgressEvents(this);
-    unregisterClientEvents(this);
-
-    dest_request.on_completed();
-    dest_response.on_completed();
-    dest_body.on_completed();
 }
 
 
 bool HttpProgressState::onHTTPClientResponseEvent(HTTP::ClientResponseEventArgs& args)
 {
-    const std::size_t bufferSize = IO::ByteBufferUtils::DEFAULT_BUFFER_SIZE;
+    auto sc = rx::schedulers::make_current_thread();
+    auto w = sc.create_worker(dest_body.get_subscription());
+    w.schedule([=](const rx::schedulers::schedulable& self){
+        std::istream& istr = args.getResponseStream();
 
-    std::istream& istr = args.getResponseStream();
+        auto buffy = BufferRef<char>(pool, bufferSize + BufferRef<char>::overhead_size, args);
+        std::streamsize len = 0;
+        istr.read(buffy.begin(), bufferSize);
+        std::streamsize n = istr.gcount();
 
-    std::streamsize contentLength = args.getResponse().getContentLength();
-
-    _byteBuffer.reserve(contentLength);
-
-    Poco::Buffer<char> buffer(bufferSize);
-    std::streamsize len = 0;
-	istr.read(buffer.begin(), bufferSize);
-    std::streamsize n = istr.gcount();
-    while (n > 0)
-	{
-		len += n;
-        _byteBuffer.writeBytes(reinterpret_cast<uint8_t*>(buffer.begin()), n);
-
-        // Check for task cancellation.
-        if (istr && dest_body.is_subscribed())
-		{
-			istr.read(buffer.begin(), bufferSize);
-            n = istr.gcount();
-		}
-        else
-        {
+        if (n > 0) {
+            buffy.resize(n);
+            dest_body.on_next(buffy);
             n = 0;
         }
-	}
 
-    // Don't return cancelled data.
-    if (dest_body.is_subscribed())
-    {
-        HTTP::ClientResponseBufferEventArgs bufferEvent(_byteBuffer,
-                                                  args.getRequest(),
-                                                  args.getResponse(),
-                                                  args.getContextRef());
-        dest_body.on_next(bufferEvent);
+        if (!istr.eof()) {
+
+            if (istr) {
+                // continue
+                self();
+                return;
+            }
+
+            if (!istr.good()) {
+                std::runtime_error error("istream !good()");
+                rx::observable<>::error<BufferRef<char>>(error).subscribe(dest_body);
+            }
+        }
+
+        // finished
+
+        unregisterClientFilterEvents(this);
+        unregisterClientProgressEvents(this);
+        unregisterClientEvents(this);
+        
+        dest_request.on_completed();
+        dest_response.on_completed();
         dest_body.on_completed();
-    }
+    });
 
     return true;
 }

@@ -6,6 +6,8 @@
 #include "ofxRxHttp.h"
 namespace rx=ofxRx::rx;
 
+#include "HttpGet.h"
+
 class ofApp : public ofBaseApp{
 	public:
         ofApp();
@@ -16,15 +18,10 @@ class ofApp : public ofBaseApp{
 		void dragEvent(ofDragInfo dragInfo);
 		void gotMessage(ofMessage msg);
     
+    static const int itemHeight = 80;
+    
     ofx::rx::HttpClient http;
-    std::ostringstream progress;
     rx::subjects::subject<std::string> sub_get;
     rx::subscriber<std::string> dest_get;
-    struct HttpGet
-    {
-        float progress;
-        std::string url;
-        std::string message;
-    };
     std::list<HttpGet> gets;
 };
