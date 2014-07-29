@@ -109,7 +109,7 @@ rx::observable<std::tuple<ofxRx::HttpProgress, HttpGet*>> HttpGet::get(ofxRx::Ht
                  // all the pending responses have completed.
                 return merged.
                     ref_count().
-                    lift([](rx::subscriber<HttpGet*> dest){
+                    lift<HttpGet*>([](rx::subscriber<HttpGet*> dest){
                         return rx::make_subscriber<HttpGet*>(
                             // filter out all on_next
                             [](HttpGet*){},
