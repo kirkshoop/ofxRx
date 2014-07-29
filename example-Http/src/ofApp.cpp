@@ -21,10 +21,11 @@ void ofApp::setup(){
                 // add state object to track this url
                 gets.push_back(HttpGet(std::move(url), itemHeight));
                 auto last = --gets.end();
+                // start the http get request
                 return last->get(http).
                     finally([=](){
                         // image is loaded, fade image and then remove it.
-                        rx::observable<>::interval(ofx::rx::make_update().now() + milliseconds(250),
+                        rx::observable<>::interval(ofx::rx::make_update().now() + milliseconds(100),
                             milliseconds(100),
                             ofx::rx::serialize_update()).
                             take(10).

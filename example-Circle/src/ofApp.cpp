@@ -4,12 +4,13 @@ const int FLYING_DELAY_MS = 200;
 
 ofApp::~ofApp()
 {
-    dest_center.on_completed();
 }
 
 ofApp::ofApp()
+#if RXCPP_VIEW_TRACE
     :
-    dest_center(center_source.get_subscriber().as_dynamic())
+    vt(rx::trace_activity())
+#endif
 {
 }
 
@@ -26,7 +27,6 @@ void ofApp::setup(){
     //
     // calculate orbit position based on time
     //
-
     auto orbit_points = updates.milliseconds().
         map(
             [this](unsigned long long tick){
@@ -36,30 +36,8 @@ void ofApp::setup(){
         map(
             [this](float t){
                 // map the time value to a point on a circle
-                return orbit_circle ?
-                    ofPoint(orbit_radius * std::cos(t * 2 * 3.14), orbit_radius * std::sin(t * 2 * 3.14)) :
-                    ofPoint();
-            }).
-        as_dynamic();
-
-    //
-    // use most recently selected source of points
-    //
-
-    auto center_points = center_source.get_observable().
-        switch_on_next().
-        as_dynamic();
-
-    //
-    // adding current center to current orbit position results in a stream of points that orbit the center points.
-    //
-
-    orbit_points.
-        combine_latest(std::plus<ofPoint>(), center_points).
-        subscribe(
-              [this](ofPoint c){
-                  center = c;
-              });
+                return ofPoint(orbit_radius * std::cos(t * 2 * 3.14), orbit_radius * std::sin(t * 2 * 3.14));
+            });
 
     //
     // define point sources
@@ -91,12 +69,11 @@ void ofApp::setup(){
     auto never = rx::observable<>::never<ofPoint>().
         as_dynamic();
 
-    auto sources = rx::util::to_vector({window_center, all_movement, just_moves, just_drags, never});
-
     //
     // display gui
     //
     
+    auto sources = rx::util::to_vector({window_center, all_movement, just_moves, just_drags, never});
     auto sourcesText = rx::util::to_vector<string>({"window_center", "all_movement", "just_moves", "just_drags", "never"});
 
     gui.add(show_circle.setup("circle", true));
@@ -104,35 +81,63 @@ void ofApp::setup(){
     gui.add(circle_radius.setup("circle radius", 20.0, 10.0, 600.0));
 	gui.add(orbit_radius.setup("orbit radius", 50.0, 10.0, 600.0));
     gui.add(orbit_period.setup("orbit period", 1.0, 0.5, 5.0));
-	gui.add(selected.setup("select source", 0, 0, sources.size()));
-    gui.add(selectedText.setup("selected source", sourcesText[0]));
-
-    selectedText.setSize((17 + sourcesText[0].size()) * 8.5, selectedText.getHeight());
+	gui.add(selected.setup("select source", 0, 0, sourcesText.size() - 1));
+    gui.add(selectedText.setup("selected source", ""));
 
     //
-    // switch source on selection changes
+    // use most recently selected source of points
     //
-    
-    auto dest_center = center_source.get_subscriber().get_observer();
-
-    dest_center.on_next(window_center);
     
     selections.setup(selected).
-        subscribe([=](int selected){
-            dest_center.on_next(sources[selected % sources.size()]);
-            string msg = sourcesText[selected % sourcesText.size()];
-            selectedText = msg;
-            selectedText.setSize((17 + msg.size()) * 8.5, selectedText.getHeight());
-        });
+        publish(0).ref_count(). // selected is zero at start, also remember the last value
+        // combines events from the ui controls to select a stream of points
+        combine_latest(
+            [=](int selected, bool orbits){
+
+                // update ui text
+                string msg = sourcesText[selected % sourcesText.size()];
+                selectedText = msg;
+                selectedText.setSize((17 + msg.size()) * 8.5, selectedText.getHeight());
+
+                auto selected_source = sources[selected % sources.size()].
+                    // use the mouse position at start, also remember the last value
+                    publish(ofPoint(ofGetMouseX(), ofGetMouseY())).ref_count();
+
+                if (orbits) {
+                    // add the selected source and the orbit source together
+                    return orbit_points.
+                        combine_latest(
+                            std::plus<ofPoint>(),
+                            selected_source).
+                        as_dynamic();
+                }
+
+                // use only the selected source
+                return selected_source.
+                    as_dynamic();
+            }, orbits.setup(orbit_circle).
+                publish(true).ref_count() // orbits is true at start, also remember the last value
+            ).
+        // let each new source selection replace the last source
+        switch_on_next().
+        subscribe(
+            [=](ofPoint c){
+                // update the point that the draw() call will use
+                center = c;
+            });
 }
 
 //--------------------------------------------------------------
 void ofApp::draw(){
 
-    ofBackgroundGradient(ofColor::white, ofColor::gray);
+    ofBackgroundGradient(ofColor::gray, ofColor::gray);
 
     ofFill();
 
+#if RXCPP_VIEW_TRACE
+    vt.draw();
+#endif
+    
     //
     // display circle
     //
@@ -148,10 +153,9 @@ void ofApp::draw(){
 
 //--------------------------------------------------------------
 void ofApp::windowResized(int w, int h){
-
     if (selected == 0) {
         auto window_center = rx::observable<>::just(ofPoint(ofGetWidth()/2, ofGetHeight()/2));
-        dest_center.on_next(window_center);
+        orbit_circle = (bool)orbit_circle;
     }
 }
 

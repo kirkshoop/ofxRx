@@ -71,7 +71,7 @@ rx::observable<HttpProgress> HttpClient::request(HTTP::BaseRequest* pRequest)
                 new HTTP::BaseResponse(),
                 new HTTP::Context());
             return rx::sources::from(progress).
-                lift([=](rx::subscriber<HttpProgress> dest){
+                lift<HttpProgress>([=](rx::subscriber<HttpProgress> dest){
                     // VS2013 deduction issue requires dynamic (type-forgetting)
                     return rx::make_subscriber<HttpProgress>(
                         dest,

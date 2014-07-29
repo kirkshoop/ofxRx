@@ -2,6 +2,7 @@
 
 #include "ofMain.h"
 #include "ofxGui.h"
+
 #include "ofxRx.h"
 namespace rx=ofxRx::rx;
 
@@ -16,7 +17,7 @@ class ofApp : public ofBaseApp{
 		void windowResized(int w, int h);
 		void dragEvent(ofDragInfo dragInfo);
 		void gotMessage(ofMessage msg);
-    
+
     ofxRx::Mouse mouse;
     ofxRx::Updates updates;
 
@@ -29,10 +30,13 @@ class ofApp : public ofBaseApp{
     ofxLabel selectedText;
     
     ofxRx::observe_source<int> selections;
+    ofxRx::observe_source<bool> orbits;
 
 	ofxPanel gui;
+    
+#if RXCPP_VIEW_TRACE
+    ofxRxTrace& vt;
+#endif 
 
-    rx::subjects::subject<rx::observable<ofPoint>> center_source;
-    rx::subscriber<rx::observable<ofPoint>> dest_center;
     ofPoint center;
 };
