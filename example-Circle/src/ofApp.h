@@ -17,6 +17,12 @@ class ofApp : public ofBaseApp{
 		void windowResized(int w, int h);
 		void dragEvent(ofDragInfo dragInfo);
 		void gotMessage(ofMessage msg);
+    
+    rxcpp::observable<float> timeInPeriodFromMilliseconds(rxcpp::observable<unsigned long long> timeInMilliseconds);
+    rxcpp::observable<ofPoint> orbitPointsFromTimeInPeriod(rxcpp::observable<float> timeInPeriod);
+
+    static ofPoint pointFromMouse(ofMouseEventArgs e);
+
 
     ofxRx::Mouse mouse;
     ofxRx::Updates updates;
@@ -31,6 +37,7 @@ class ofApp : public ofBaseApp{
     
     ofxRx::observe_source<int> selections;
     ofxRx::observe_source<bool> orbits;
+    ofxRx::observe_source<bool> locations;
 
 	ofxPanel gui;
     
@@ -40,3 +47,5 @@ class ofApp : public ofBaseApp{
 
     ofPoint center;
 };
+
+

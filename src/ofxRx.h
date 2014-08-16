@@ -6,6 +6,7 @@
 #define OFXRX_H
 
 #include "ofMain.h"
+#include "ofxGui.h"
 
 //
 // openframeworks uses some macros that are not disambiguated
@@ -27,6 +28,17 @@ struct ofxRxTrace : rxcpp::trace_noop
     }
     ofxRxTrace() : valid(true) {}
     
+    ofxPanel gui;
+    ofxToggle show_stream_hud;
+
+    
+    void setup()
+    {
+        gui.setup();
+
+        gui.add(show_stream_hud.setup("HUD", false));
+    }
+
     struct marble
     {
         const char* method;
@@ -35,9 +47,13 @@ struct ofxRxTrace : rxcpp::trace_noop
     };
     struct subscribed
     {
+        subscribed() : created(false), errored(false), completed(false) {}
         rxcpp::trace_id id;
         std::string value_type;
         std::string status;
+        bool created;
+        bool errored;
+        bool completed;
         std::deque<marble> marbles;
         std::vector<rxcpp::trace_id> from;
         std::vector<rxcpp::trace_id> to;
@@ -58,10 +74,16 @@ struct ofxRxTrace : rxcpp::trace_noop
         } catch(...) {
             active[key].value_type = "typeid unsupported.";
         }
-        active[key].status = "created";
+        if (active[key].status.empty()) {
+            active[key].status = "created";
+        }
+        active[key].created = true;
         s.add([=](){
             if(!valid) {return;}
-            active[key].status = "disposed";
+            if (active.find(key) == active.end()) return;
+            if(!active[key].errored && !active[key].completed) {
+                active[key].status = "disposed";
+            }
             silent[key] = std::move(active[key]);
             active.erase(key);
         });
@@ -76,10 +98,12 @@ struct ofxRxTrace : rxcpp::trace_noop
     
     template<class OperatorSource, class OperatorChain, class Subscriber, class SubscriberLifted>
     inline void lift_enter(const OperatorSource&, const OperatorChain&, const Subscriber& s, const SubscriberLifted& sl) {
-        auto key = s.get_id();
-        if ((key.id & 0xF0000000) != 0xB0000000) std::terminate();
+        auto fkey = sl.get_id();
+        if ((fkey.id & 0xF0000000) != 0xB0000000) std::terminate();
+        auto tkey = s.get_id();
+        if ((tkey.id & 0xF0000000) != 0xB0000000) std::terminate();
         connect(sl, s);
-        active[key].status = "lifted";
+        active[tkey].status = "lifted";
     }
 
     template<class SubscriberFrom, class SubscriberTo>
@@ -90,7 +114,7 @@ struct ofxRxTrace : rxcpp::trace_noop
         if ((tkey.id & 0xF0000000) != 0xB0000000) std::terminate();
         active[fkey].to.push_back(tkey);
         active[tkey].from.push_back(fkey);
-        active[tkey].status = "connected";
+        active[tkey].status = "operated";
     }
     
     template<class SubscriptionState>
@@ -120,6 +144,7 @@ struct ofxRxTrace : rxcpp::trace_noop
         auto key = s.get_id();
         if ((key.id & 0xF0000000) != 0xB0000000) std::terminate();
         active[key].status = "errored";
+        active[key].errored = true;
         auto now = ofGetElapsedTimeMicros();
         active[key].marbles.push_back(marble{"on_error", now, now});
     }
@@ -130,6 +155,7 @@ struct ofxRxTrace : rxcpp::trace_noop
         auto key = s.get_id();
         if ((key.id & 0xF0000000) != 0xB0000000) std::terminate();
         active[key].status = "completed";
+        active[key].completed = true;
         auto now = ofGetElapsedTimeMicros();
         active[key].marbles.push_back(marble{"on_completed", now, now});
     }
@@ -198,8 +224,8 @@ struct ofxRxTrace : rxcpp::trace_noop
         ofDrawBitmapString(ss.str(), ofPoint(10, 14, 0));
         
     }
-    
-    void draw() {
+
+    void draw_hud() {
         auto now = ofGetElapsedTimeMicros();
         int y = 0;
         const int height = 14;
@@ -209,21 +235,28 @@ struct ofxRxTrace : rxcpp::trace_noop
             [&](const subscribed_type::value_type& v){
                 return &v;
             });
+
+        // remove subscribers that have connections to active subscribers
         roots.erase(std::remove_if(roots.begin(), roots.end(),
-            [](const subscribed_type::value_type* s){
-                return !s->second.to.empty();
+            [&](const subscribed_type::value_type* s){
+                return std::find_if(s->second.to.begin(), s->second.to.end(),
+                    [&](const rxcpp::trace_id& id){
+                        return active.find(id) != active.end();
+                    }) != s->second.to.end();
             }), roots.end());
 
         std::vector<std::deque<const subscribed_type::value_type*>> streams;
         std::function<void (const subscribed_type::value_type*, std::deque<const subscribed_type::value_type*>&)> fill_from;
         fill_from = [&](const subscribed_type::value_type* v, std::deque<const subscribed_type::value_type*>& stream) {
-            for(auto& from : v->second.from) {
+            auto unique_from = v->second.from;
+            unique_from.erase(std::unique(unique_from.begin(), unique_from.end()), unique_from.end());
+            for(auto& from : unique_from) {
                 auto next = active.find(from);
                 if (next != active.end()) {
                     stream.push_front(&*next);
                 }
             }
-            for(auto& from : v->second.from) {
+            for(auto& from : unique_from) {
                 auto next = active.find(from);
                 if (next != active.end()) {
                     fill_from(&*next, stream);
@@ -237,22 +270,7 @@ struct ofxRxTrace : rxcpp::trace_noop
                     fill_from(v, stream);
                     return stream;
                 });
-/*
-        sorted.erase(std::remove_if(sorted.begin(), sorted.end(),
-            [](const subscribed_type::value_type* s){
-                return false;//!s->second.to.empty();
-            }), sorted.end());
 
-        std::function<bool (const subscribed_type::value_type*, const subscribed_type::value_type*)> lhs_is_from;
-        lhs_is_from = [&](const subscribed_type::value_type* lhs, const subscribed_type::value_type* rhs) {
-            return lhs && rhs && std::find_if(lhs->second.to.begin(), lhs->second.to.end(),
-                [&](const rxcpp::trace_id& cursor) {
-                    auto next = active.find(cursor);
-                    return cursor != rhs->first || lhs_is_from(&(*next), rhs);
-                }) == lhs->second.to.end();
-        };
-        std::sort(sorted.begin(), sorted.end(), lhs_is_from);
-*/
         for (auto stream : streams)
         {
             for (auto s : stream)
@@ -271,6 +289,7 @@ struct ofxRxTrace : rxcpp::trace_noop
             }
             y += (height + 1);
         }
+        
         for (auto& s : silent)
         {
             if (y > ofGetHeight()) {break;}
@@ -285,6 +304,14 @@ struct ofxRxTrace : rxcpp::trace_noop
             
             y += (height + 1);
         }
+    }
+
+    void draw() {
+        if (show_stream_hud) {
+            draw_hud();
+        }
+
+        gui.draw();
     }
 };
 

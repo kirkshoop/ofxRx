@@ -39,24 +39,24 @@ rx::observable<unsigned long long> Updates::milliseconds() const
 {
     return sub_updates.
     get_observable().
-    map([](const ofEventArgs&){return ofGetElapsedTimeMillis();}).
-    as_dynamic();
+        map([](const ofEventArgs&){return ofGetElapsedTimeMillis();}).
+        as_dynamic();
 }
 
 rx::observable<unsigned long long> Updates::microseconds() const
 {
     return sub_updates.
     get_observable().
-    map([](const ofEventArgs&){return ofGetElapsedTimeMicros();}).
-    as_dynamic();
+        map([](const ofEventArgs&){return ofGetElapsedTimeMicros();}).
+        as_dynamic();
 }
 
 rx::observable<float> Updates::floats() const
 {
     return sub_updates.
     get_observable().
-    map([](const ofEventArgs&){return ofGetElapsedTimef();}).
-    as_dynamic();
+        map([](const ofEventArgs&){return ofGetElapsedTimef();}).
+        as_dynamic();
 }
 
 void Updates::update(ofEventArgs& a){
