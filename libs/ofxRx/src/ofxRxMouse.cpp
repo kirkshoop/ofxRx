@@ -23,6 +23,11 @@ Mouse::~Mouse() {
     dest_releases.on_completed();
 }
 
+//static
+ofPoint Mouse::pointFromEvent(ofMouseEventArgs e){
+    return ofPoint(e.x, e.y);
+};
+
 void Mouse::setup(){
     if(!registered) {
         ofRegisterMouseEvents(this);

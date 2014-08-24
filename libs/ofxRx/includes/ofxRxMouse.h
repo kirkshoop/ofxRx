@@ -22,6 +22,8 @@ public:
     void mousePressed(ofMouseEventArgs & args);
     void mouseReleased(ofMouseEventArgs & args);
 
+    static ofPoint pointFromEvent(ofMouseEventArgs e);
+
 protected:
     bool registered;
     rx::subjects::subject<ofMouseEventArgs> sub_moves;

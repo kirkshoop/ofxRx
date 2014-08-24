@@ -3,12 +3,17 @@
 
 void step_one_setup(ofApp* app)
 {
-    app->gui.add(app->show_circle.setup("circle", true));
-    app->gui.add(app->circle_radius.setup("circle radius", 20.0, 10.0, 600.0));
+    auto orbit_points = app->orbitPointsFromTimeInPeriod(
+        app->timeInPeriodFromMilliseconds(
+            app->updates.
+                milliseconds()));
 
-    app->mouse.
+    auto location_points = app->mouse.
         moves().
-        map(ofApp::pointFromMouse).
+        map(ofApp::pointFromMouse);
+    
+    location_points.
+        combine_latest(std::plus<>(), orbit_points).
         subscribe(
             [=](ofPoint c){
                 // update the point that the draw() call will use

@@ -4,9 +4,6 @@
 
 void step_two_setup(ofApp* app)
 {
-    app->gui.add(app->show_circle.setup("circle", true));
-    app->gui.add(app->circle_radius.setup("circle radius", 20.0, 10.0, 600.0));
-
     auto location_points = app->locations.setup(app->show_circle).
         distinct_until_changed().
         start_with(true).

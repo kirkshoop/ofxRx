@@ -59,11 +59,17 @@ void ofApp::setup(){
     updates.setup();
     gui.setup();
 
+    gui.add(show_circle.setup("circle", true));
+    gui.add(orbit_circle.setup("circle orbits", true));
+    gui.add(circle_radius.setup("circle radius", 20.0, 10.0, 600.0));
+    gui.add(orbit_radius.setup("orbit radius", 50.0, 10.0, 600.0));
+    gui.add(orbit_period.setup("orbit period", 1.0, 0.5, 5.0));
+
 #if RXCPP_VIEW_TRACE
     vt.setup();
 #endif
 
-#define OFX_CIRCLE_STEP 4
+#define OFX_CIRCLE_STEP 1
     
 #if OFX_CIRCLE_STEP == 1
     step_one_setup(this);

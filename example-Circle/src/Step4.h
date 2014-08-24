@@ -35,11 +35,6 @@ void step_four_setup(ofApp* app)
     auto sources = rx::util::to_vector({window_center, all_movement, just_moves, just_drags, never});
     auto sourcesText = std::vector<std::string>({"window_center", "all_movement", "just_moves", "just_drags", "never"});
 
-    app->gui.add(app->show_circle.setup("circle", true));
-    app->gui.add(app->orbit_circle.setup("circle orbits", true));
-    app->gui.add(app->circle_radius.setup("circle radius", 20.0, 10.0, 600.0));
-    app->gui.add(app->orbit_radius.setup("orbit radius", 50.0, 10.0, 600.0));
-    app->gui.add(app->orbit_period.setup("orbit period", 1.0, 0.5, 5.0));
     app->gui.add(app->selected.setup("select source", 0, 0, sourcesText.size() - 1));
     app->gui.add(app->selectedText.setup("selected source", ""));
 
@@ -73,7 +68,7 @@ void step_four_setup(ofApp* app)
         start_with(ofPoint(ofGetWidth()/2, ofGetHeight()/2));
     
     location_points.
-        combine_latest(std::plus<ofPoint>(), orbit_points).
+        combine_latest(std::plus<>(), orbit_points).
         subscribe(
             [=](ofPoint c){
                 // update the point that the draw() call will use
