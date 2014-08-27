@@ -30,6 +30,8 @@ struct ofxCommon
     rx::observable<ofPoint> just_drags();
     rx::observable<ofPoint> never();
 
+    void trace_off();
+    
     void setup();
     void draw();
 };

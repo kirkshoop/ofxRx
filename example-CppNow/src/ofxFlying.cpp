@@ -6,17 +6,14 @@ const int FLYING_DELAY_MS = 200;
 
 ofxFlying::~ofxFlying()
 {
-    dest_center.on_completed();
-
 }
 
 ofxFlying::ofxFlying(ofxCommon c)
     : ofxCommon(c)
-    , dest_center(center_source.get_subscriber().as_dynamic())
 {
 }
 
-void ofxFlying::setup() {
+void ofxFlying::setup(float guiX) {
 
     message = "Time flies like an arrow";
 
@@ -33,13 +30,15 @@ void ofxFlying::setup() {
     gui.add(selectedText.setup("selected source", sourcesText[0]));
     gui.add(pointsInWindow.setup("points in window", ""));
 
+    gui.setPosition(guiX, ofGetHeight() - gui.getHeight() - 20);
+
     //
     // edit flying text
     //
     
     keyboard().
         releases().
-        map([](ofKeyEventArgs a){return a.key;}).
+        map(ofxRx::Keyboard::keyFromEvent).
         filter([](int key){ return key == OF_KEY_BACKSPACE; }).
         subscribe([this](int){
             if (!message.empty()) {
@@ -51,15 +50,16 @@ void ofxFlying::setup() {
     
     keyboard().
         releases().
-        map([](ofKeyEventArgs a){return a.key;}).
-        filter([](int key){ return !(key & OF_KEY_MODIFIER) && key != OF_KEY_BACKSPACE; }).
+        map(ofxRx::Keyboard::keyFromEvent).
+        filter(ofxRx::Keyboard::printable).
         subscribe([this](char c){
             message.push_back(c);
             flyingText = message;
             flyingText.setSize((13 + message.size()) * 8.5, flyingText.getHeight());
         });
 
-    auto location_points = selections.setup(selected).
+    auto location_points = selections.
+        setup(selected).
         distinct_until_changed().
         start_with(0).
         map(
@@ -70,21 +70,35 @@ void ofxFlying::setup() {
         switch_on_next().
         start_with(ofPoint(ofGetWidth()/2, ofGetHeight()/2));
 
-    //
-    // collect rolling window of past points
-    //
-
-    location_points.
+    auto mouse_moves = location_points.
         combine_latest(updates().milliseconds()).
+        as_dynamic();
+    
+    auto never_move = rxcpp::observable<>::
+        never<move_record>().
+        as_dynamic();
+
+    auto move_record_source = show_text_source.
+        setup(show_text).
+        start_with(true).
+        combine_latest(show_window_source.
+            setup(show_window).
+            start_with(false)).
+        map(rxcpp::util::apply_to(
+            [=](bool text, bool window){
+                return text || window ? mouse_moves : never_move;
+            })).
+        switch_on_next();
+
+    //
+    // store rolling window of past points
+    //
+    move_record_source.
         subscribe(
             [=](const move_record& pt){
                 move_window.push_back(pt);
-                while(move_window.size() > 1 &&
-                    std::get<1>(pt) > (message.size() * FLYING_DELAY_MS) &&
-                    std::get<1>(move_window.front()) < std::get<1>(pt) - (message.size() * FLYING_DELAY_MS)) {
-                    move_window.pop_front();
-                }
-                std:stringstream ss;
+
+                std::stringstream ss;
                 ss << move_window.size();
                 pointsInWindow = ss.str();
             });
@@ -92,6 +106,21 @@ void ofxFlying::setup() {
 }
 
 void ofxFlying::draw() {
+    auto now = ofGetElapsedTimeMillis();
+    auto age_threshold = now - ((2 * FLYING_DELAY_MS) * message.size());
+    auto keep_threshold = now - (FLYING_DELAY_MS * message.size());
+    
+    if (!move_window.empty() && age_threshold < now && std::get<1>(move_window.front()) < age_threshold) {
+        move_window.erase(
+            move_window.begin(),
+            std::lower_bound(
+                move_window.begin(), move_window.end(),
+                move_record(ofPoint(), keep_threshold),
+                [&](const move_record& lhs, const move_record& rhs){
+                    return std::get<1>(lhs) < std::get<1>(rhs);
+                }));
+    }
+
     //
     // display move window
     //
@@ -109,11 +138,10 @@ void ofxFlying::draw() {
     //
     
     if (show_text && !move_window.empty()) {
-        auto pt_cursor = move_window.rbegin();
-        auto pt_end = move_window.rend();
+        auto pt_end = move_window.end();
         auto index = 0;
-        auto now = ofGetElapsedTimeMillis();
         for (auto& c : message) {
+            auto pt_cursor = move_window.begin();
             
             //
             // find point to place this character
@@ -122,13 +150,15 @@ void ofxFlying::draw() {
             // choose a time in the past
             auto time = now - (FLYING_DELAY_MS * index);
             // search through the past for the point value at the selected time
-            pt_cursor = std::find_if(pt_cursor, pt_end,
-                                     [&](const move_record& tp){
-                                         return time > std::get<1>(tp);
-                                     });
+            pt_cursor = std::upper_bound(
+                pt_cursor, pt_end,
+                move_record(ofPoint(), time),
+                [&](const move_record& lhs, const move_record& rhs){
+                    return std::get<1>(lhs) < std::get<1>(rhs);
+                });
             if (pt_cursor == pt_end) {
-                // too far in the past, bail
-                break;
+                // extract the first point
+                at = std::get<0>(move_window.back());
             } else {
                 // extract the point
                 at = std::get<0>(*pt_cursor);

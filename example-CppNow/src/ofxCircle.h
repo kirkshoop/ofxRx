@@ -5,7 +5,7 @@ public:
     ~ofxCircle();
     explicit ofxCircle(ofxCommon c);
     
-    void setup();
+    void setup(float guiX);
     void draw();
     
     rxcpp::observable<float> timeInPeriodFromMilliseconds(rxcpp::observable<unsigned long long> timeInMilliseconds);
@@ -22,6 +22,10 @@ public:
     ofxRx::observe_source<int> selections;
     ofxRx::observe_source<bool> orbits;
     ofxRx::observe_source<bool> locations;
+    ofxRx::observe_source<float> periods;
+    
+    float last_period;
+    int orbit_offset;
     
     ofxPanel gui;
     

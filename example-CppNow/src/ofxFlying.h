@@ -6,7 +6,7 @@ public:
     ~ofxFlying();
     explicit ofxFlying(ofxCommon c);
     
-    void setup();
+    void setup(float guiX);
     void draw();
 
     ofxToggle show_text;
@@ -17,13 +17,12 @@ public:
     ofxLabel pointsInWindow;
 
     ofxRx::observe_source<int> selections;
+    ofxRx::observe_source<bool> show_text_source;
+    ofxRx::observe_source<bool> show_window_source;
 
     ofxPanel gui;
 
-    rx::subjects::subject<rx::observable<ofPoint>> center_source;
-    rx::subscriber<rx::observable<ofPoint>> dest_center;
     std::string message;
     typedef std::tuple<ofPoint, unsigned long long> move_record;
     std::deque<move_record> move_window;
-
 };

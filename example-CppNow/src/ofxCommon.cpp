@@ -55,6 +55,12 @@ rx::observable<ofPoint> ofxCommon::never() {
     never<ofPoint>();
 }
 
+void ofxCommon::trace_off() {
+#if RXCPP_VIEW_TRACE
+    shared->vt.valid = false;
+#endif
+}
+
 void ofxCommon::setup() {
     shared->mouse.setup();
     shared->keyboard.setup();

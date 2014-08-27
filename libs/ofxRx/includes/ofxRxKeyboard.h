@@ -18,6 +18,9 @@ public:
     void keyPressed(ofKeyEventArgs& a);
     void keyReleased(ofKeyEventArgs& a);
     
+    static int keyFromEvent(const ofKeyEventArgs& e);
+    static bool printable(int key);
+    
 protected:
     bool registered;
     rx::subjects::subject<ofKeyEventArgs> sub_presses;

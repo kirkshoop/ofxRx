@@ -41,6 +41,15 @@ rx::observable<ofKeyEventArgs> Keyboard::releases(){
     return sub_releases.get_observable();
 }
 
+//static
+int Keyboard::keyFromEvent(const ofKeyEventArgs& e) {
+    return e.key;
+}
+//static
+bool Keyboard::printable(int key){
+    return !(key & OF_KEY_MODIFIER) && isprint(key);
+}
+
 void Keyboard::keyPressed(ofKeyEventArgs& a){
     dest_presses.on_next(a);
 }

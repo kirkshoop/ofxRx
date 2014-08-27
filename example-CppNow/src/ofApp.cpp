@@ -7,6 +7,7 @@ ofApp::~ofApp()
 ofApp::ofApp()
     : circle(common)
     , flying(common)
+    , images(common)
 {
 }
 
@@ -19,8 +20,9 @@ void ofApp::setup(){
     
     common.setup();
     
-    circle.setup();
-    flying.setup();
+    circle.setup(50);
+    images.setup(300);
+    flying.setup(550);
 }
 
 //--------------------------------------------------------------
@@ -32,6 +34,7 @@ void ofApp::draw(){
 
     common.draw();
 
+    images.draw();
     circle.draw();
     flying.draw();
 }

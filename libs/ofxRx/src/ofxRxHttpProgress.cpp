@@ -66,17 +66,18 @@ bool HttpProgressState::onHTTPClientResponseEvent(HTTP::ClientResponseEventArgs&
 {
     auto sc = rx::schedulers::make_current_thread();
     auto w = sc.create_worker(dest_body.get_subscription());
+    auto keep = this->shared_from_this();
     w.schedule([=](const rx::schedulers::schedulable& self){
         std::istream& istr = args.getResponseStream();
 
-        auto buffy = BufferRef<char>(pool, bufferSize + BufferRef<char>::overhead_size, args);
+        auto buffy = BufferRef<char>(keep->pool, keep->bufferSize + BufferRef<char>::overhead_size, args);
         std::streamsize len = 0;
-        istr.read(buffy.begin(), bufferSize);
+        istr.read(buffy.begin(), keep->bufferSize);
         std::streamsize n = istr.gcount();
 
         if (n > 0) {
             buffy.resize(n);
-            dest_body.on_next(buffy);
+            keep->dest_body.on_next(buffy);
             n = 0;
         }
 
@@ -96,13 +97,13 @@ bool HttpProgressState::onHTTPClientResponseEvent(HTTP::ClientResponseEventArgs&
 
         // finished
 
-        unregisterClientFilterEvents(this);
-        unregisterClientProgressEvents(this);
-        unregisterClientEvents(this);
+        unregisterClientFilterEvents(keep.get());
+        unregisterClientProgressEvents(keep.get());
+        unregisterClientEvents(keep.get());
         
-        dest_request.on_completed();
-        dest_response.on_completed();
-        dest_body.on_completed();
+        keep->dest_request.on_completed();
+        keep->dest_response.on_completed();
+        keep->dest_body.on_completed();
     });
 
     return true;

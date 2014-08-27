@@ -4,12 +4,14 @@
 #include "ofxGui.h"
 
 #include "ofxRx.h"
+#include "ofxRxHttp.h"
 namespace rx=ofxRx::rx;
 
 #include "ofxCommon.h"
 
 #include "ofxCircle.h"
-#include "ofxFLying.h"
+#include "ofxFlying.h"
+#include "ofxHttpImage.h"
 
 class ofApp : public ofBaseApp{
 	public:
@@ -22,6 +24,7 @@ class ofApp : public ofBaseApp{
     ofxCommon common;
     ofxCircle circle;
     ofxFlying flying;
+    ofxHttpImage images;
 };
 
 
