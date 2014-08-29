@@ -1,6 +1,10 @@
 
 #include "ofApp.h"
 
+#include <rxcpp/rx-test.hpp>
+namespace rxu = rxcpp::util;
+namespace rxsc = rxcpp::schedulers;
+
 ofxCircle::~ofxCircle()
 {
 }
@@ -34,12 +38,106 @@ ofxCircle::orbitPointsFromTimeInPeriod(
             });
 }
 
+std::string ofxCircle::test() {
+    std::stringstream results;
+    
+    {
+        auto sc = rxsc::make_test();
+        auto w = sc.create_worker();
+        const rxsc::test::messages<unsigned long long> m_on;
+        const rxsc::test::messages<float> p_on;
+
+        auto xs = sc.make_hot_observable({
+            m_on.next(300, 250),
+            m_on.next(400, 500),
+            m_on.next(500, 750),
+            m_on.next(600, 1000),
+            m_on.completed(700)
+        });
+
+        orbit_offset = 0;
+        orbit_period = 1.0;
+
+        auto res = w.start(
+           [&]() {
+               return timeInPeriodFromMilliseconds(xs.skip(0));
+           });
+
+        auto required = rxu::to_vector({
+            p_on.next(300, 0.25),
+            p_on.next(400, 0.5),
+            p_on.next(500, 0.75),
+            p_on.next(600, 0.0),
+            p_on.completed(700)
+        });
+        auto actual = res.get_observer().messages();
+        
+        results << "timeInPeriodFromMilliseconds: ";
+        if (actual.size() == required.size() &&
+            std::equal(actual.begin(), actual.end(), required.begin())) {
+            results << "Passed" << std::endl;
+        } else {
+            results << "Failed" << std::endl;
+            results << "  Required - " << required << std::endl;
+            results << "  Actual   - " << actual << std::endl;
+        }
+    }
+
+    {
+        auto sc = rxsc::make_test();
+        auto w = sc.create_worker();
+        const rxsc::test::messages<float> p_on;
+        const rxsc::test::messages<ofPoint> pt_on;
+        
+        auto roundedPt = [](ofPoint pt){
+            return ofPoint(std::round(pt.x), std::round(pt.y));
+        };
+        
+        auto xs = sc.make_hot_observable({
+            p_on.next(300, 0.25),
+            p_on.next(400, 0.5),
+            p_on.next(500, 0.75),
+            p_on.next(600, 0.0),
+            p_on.completed(700)
+        });
+        
+        orbit_radius = 50;
+        
+        auto res = w.start(
+            [&]() {
+                return orbitPointsFromTimeInPeriod(xs.skip(0)).map(roundedPt);
+            });
+        
+        auto required = rxu::to_vector({
+            pt_on.next(300, ofPoint(0, 50)),
+            pt_on.next(400, ofPoint(-50, 0)),
+            pt_on.next(500, ofPoint(0, -50)),
+            pt_on.next(600, ofPoint(50, 0)),
+            pt_on.completed(700)
+        });
+        auto actual = res.get_observer().messages();
+        
+        results << "orbitPointsFromTimeInPeriod: ";
+        if (actual.size() == required.size() &&
+            std::equal(actual.begin(), actual.end(), required.begin())) {
+            results << "Passed" << std::endl;
+        } else {
+            results << "Failed" << std::endl;
+            results << "  Required - " << required << std::endl;
+            results << "  Actual   - " << actual << std::endl;
+        }
+    }
+
+    return results.str();
+}
+
 void ofxCircle::setup(float guiX) {
 
     gui.setup();
 
+    gui.add(run_tests.setup("run tests", false));
     gui.add(show_circle.setup("circle", true));
-    gui.add(orbit_circle.setup("circle orbits", true));
+    gui.add(orbit_circle.setup("circle orbits", false));
     gui.add(circle_radius.setup("circle radius", 20.0, 10.0, 600.0));
     gui.add(orbit_radius.setup("orbit radius", 50.0, 10.0, 600.0));
     gui.add(orbit_period.setup("orbit period", 1.0, 0.5, 5.0));
@@ -57,7 +155,7 @@ void ofxCircle::setup(float guiX) {
     //
     periods.setup(orbit_period).
         distinct_until_changed().
-        start_with(1.0).
+        start_with(orbit_period).
         subscribe(
             [this](float newPeriod){
                 auto tick = ofGetElapsedTimeMillis();
@@ -71,7 +169,7 @@ void ofxCircle::setup(float guiX) {
     //
     auto orbit_points = orbits.setup(orbit_circle).
         distinct_until_changed().
-        start_with(true).
+        start_with(orbit_circle).
         map(
             [=](bool orbits){
                 if (orbits) {
@@ -92,7 +190,7 @@ void ofxCircle::setup(float guiX) {
     //
     auto location_points = selections.setup(selected).
         distinct_until_changed().
-        start_with(0).
+        start_with(selected).
         map(
             [=](int locationSource){
                 selectedText = sourcesText[selected % sourcesText.size()];
@@ -107,7 +205,7 @@ void ofxCircle::setup(float guiX) {
     //
     auto circle_points = locations.setup(show_circle).
         distinct_until_changed().
-        start_with(true).
+        start_with(show_circle).
         map(
             [=](bool show){
                 return show ? location_points : never();
@@ -132,6 +230,11 @@ void ofxCircle::draw() {
     
     if (show_circle) {
         ofCircle(center, circle_radius);
+    }
+
+    if (run_tests) {
+        ofSetColor(ofColor::white);
+        ofDrawBitmapString(test(), ofPoint(10, 14, 0));
     }
     
     gui.draw();

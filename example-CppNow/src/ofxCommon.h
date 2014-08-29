@@ -31,6 +31,7 @@ struct ofxCommon
     rx::observable<ofPoint> never();
 
     void trace_off();
+    void trace_on();
     
     void setup();
     void draw();

@@ -10,9 +10,12 @@ public:
     
     rxcpp::observable<float> timeInPeriodFromMilliseconds(rxcpp::observable<unsigned long long> timeInMilliseconds);
     rxcpp::observable<ofPoint> orbitPointsFromTimeInPeriod(rxcpp::observable<float> timeInPeriod);
-    
+
+    std::string test();
+
     ofxToggle show_circle;
     ofxToggle orbit_circle;
+    ofxToggle run_tests;
     ofxFloatSlider circle_radius;
     ofxFloatSlider orbit_radius;
     ofxFloatSlider orbit_period;

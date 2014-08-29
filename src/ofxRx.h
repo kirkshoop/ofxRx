@@ -114,6 +114,7 @@ struct ofxRxTrace : rxcpp::trace_noop
     inline void subscribe_enter(const Observable& o, const Subscriber& s) {
         if(!valid || !ofThread::isMainThread()) {return;}
         auto key = s.get_id();
+        if(active.count(key) == 0 ) {return;}
         if ((key.id & 0xF0000000) != 0xB0000000) std::terminate();
         active[key].status = "subscribed";
     }
@@ -122,8 +123,10 @@ struct ofxRxTrace : rxcpp::trace_noop
     inline void lift_enter(const OperatorSource&, const OperatorChain&, const Subscriber& s, const SubscriberLifted& sl) {
         if(!valid || !ofThread::isMainThread()) {return;}
         auto fkey = sl.get_id();
+        if(active.count(fkey) == 0 ) {return;}
         if ((fkey.id & 0xF0000000) != 0xB0000000) std::terminate();
         auto tkey = s.get_id();
+        if(active.count(tkey) == 0 ) {return;}
         if ((tkey.id & 0xF0000000) != 0xB0000000) std::terminate();
         connect(sl, s);
         active[tkey].status = "lifted";
@@ -133,8 +136,10 @@ struct ofxRxTrace : rxcpp::trace_noop
     inline void connect(const SubscriberFrom& from, const SubscriberTo& to) {
         if(!valid || !ofThread::isMainThread()) {return;}
         auto fkey = from.get_id();
+        if(active.count(fkey) == 0 ) {return;}
         if ((fkey.id & 0xF0000000) != 0xB0000000) std::terminate();
         auto tkey = to.get_id();
+        if(active.count(tkey) == 0 ) {return;}
         if ((tkey.id & 0xF0000000) != 0xB0000000) std::terminate();
         active[fkey].to.push_back(tkey);
         active[tkey].from.push_back(fkey);
@@ -148,16 +153,16 @@ struct ofxRxTrace : rxcpp::trace_noop
     
     template<class Subscriber, class T>
     inline void on_next_enter(const Subscriber& s, const T&) {
-        if(!valid || !ofThread::isMainThread()) {return;}
         auto key = s.get_id();
+        if(!valid || !ofThread::isMainThread() || active.count(key) == 0 ) {return;}
         if ((key.id & 0xF0000000) != 0xB0000000) std::terminate();
         auto now = ofGetElapsedTimeMicros();
         active[key].marbles.push_back(marble{"on_next", now, now});
     }
     template<class Subscriber>
     inline void on_next_return(const Subscriber& s) {
-        if(!valid || !ofThread::isMainThread()) {return;}
         auto key = s.get_id();
+        if(!valid || !ofThread::isMainThread() || active.count(key) == 0 || active[key].marbles.empty() ) {return;}
         if ((key.id & 0xF0000000) != 0xB0000000) std::terminate();
         auto now = ofGetElapsedTimeMicros();
         active[key].marbles.back().end = now;
@@ -165,8 +170,8 @@ struct ofxRxTrace : rxcpp::trace_noop
     
     template<class Subscriber>
     inline void on_error_enter(const Subscriber& s, const std::exception_ptr&) {
-        if(!valid || !ofThread::isMainThread()) {return;}
         auto key = s.get_id();
+        if(!valid || !ofThread::isMainThread() || active.count(key) == 0 ) {return;}
         if ((key.id & 0xF0000000) != 0xB0000000) std::terminate();
         active[key].status = "errored";
         active[key].errored = true;
@@ -176,8 +181,8 @@ struct ofxRxTrace : rxcpp::trace_noop
     
     template<class Subscriber>
     inline void on_completed_enter(const Subscriber& s) {
-        if(!valid || !ofThread::isMainThread()) {return;}
         auto key = s.get_id();
+        if(!valid || !ofThread::isMainThread() || active.count(key) == 0 ) {return;}
         if ((key.id & 0xF0000000) != 0xB0000000) std::terminate();
         active[key].status = "completed";
         active[key].completed = true;

@@ -20,7 +20,14 @@ class ofApp : public ofBaseApp{
 
 		void setup();
 		void draw();
-		
+
+    ofxToggle show_circle;
+    ofxToggle show_text;
+    ofxToggle show_images;
+    ofxToggle show_debug;
+
+    ofxPanel gui;
+
     ofxCommon common;
     ofxCircle circle;
     ofxFlying flying;

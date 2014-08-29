@@ -61,6 +61,12 @@ void ofxCommon::trace_off() {
 #endif
 }
 
+void ofxCommon::trace_on() {
+#if RXCPP_VIEW_TRACE
+    shared->vt.valid = true;
+#endif
+}
+
 void ofxCommon::setup() {
     shared->mouse.setup();
     shared->keyboard.setup();
