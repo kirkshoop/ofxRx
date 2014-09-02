@@ -34,8 +34,7 @@ rx::observable<ofPoint> ofxCommon::all_movement() {
     return rx::observable<>::
         from(mouse().moves(), mouse().drags()).
         merge().
-        map(ofxRx::Mouse::pointFromEvent).
-        as_dynamic();
+        map(ofxRx::Mouse::pointFromEvent);
 }
 
 rx::observable<ofPoint> ofxCommon::just_moves() {

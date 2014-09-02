@@ -60,7 +60,7 @@ std::string ofxCircle::test() {
 
         auto res = w.start(
            [&]() {
-               return timeInPeriodFromMilliseconds(xs.skip(0));
+               return timeInPeriodFromMilliseconds(xs);
            });
 
         auto required = rxu::to_vector({
