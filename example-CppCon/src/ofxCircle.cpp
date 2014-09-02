@@ -105,7 +105,7 @@ std::string ofxCircle::test() {
         
         auto res = w.start(
             [&]() {
-                return orbitPointsFromTimeInPeriod(xs.skip(0)).map(roundedPt);
+                return orbitPointsFromTimeInPeriod(xs).map(roundedPt);
             });
         
         auto required = rxu::to_vector({

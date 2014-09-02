@@ -78,8 +78,7 @@ ofxHttpImage::http_image(const ofxRx::HttpProgress& hp) {
              }).
         last().
         // got all the data, do heavy lifting on the background thread
-        map(image_from_buffer).
-        as_dynamic();
+        map(image_from_buffer);
 }
 
 //static
@@ -88,8 +87,7 @@ ofxHttpImage::http_progress_image(const ofxRx::HttpProgress& hp) {
     return http_progress(hp).
         combine_latest(
             http_image(hp).
-                start_with(std::shared_ptr<ofPixels>())).
-        as_dynamic();
+                start_with(std::shared_ptr<ofPixels>()));
 }
 
 rxcpp::subscriber<ofxHttpImage::http_response_image>
@@ -103,8 +101,7 @@ ofxHttpImage::error_display(int key, rxcpp::subscriber<http_response_image> out)
             }
             out.on_error(ex);
         },
-        [=](){out.on_completed();}).
-        as_dynamic();
+        [=](){out.on_completed();});
 }
 
 rxcpp::observable<ofxHttpImage::http_response_image>
@@ -127,7 +124,6 @@ ofxHttpImage::make_http_request(
             [=](rxcpp::subscriber<http_response_image> out){
                 return error_display(key, out);
             }).
-        as_dynamic().
         finally(
             [=](){
                 if (--queued == 0) {
@@ -136,8 +132,7 @@ ofxHttpImage::make_http_request(
                 avg[key] = (progress_labels[key].first + avg[key]) / 2;
             }).
         retry().
-        take_until(stops).
-        as_dynamic();
+        take_until(stops);
 }
 
 ofxHttpImage::http_response_image
@@ -244,7 +239,7 @@ void ofxHttpImage::setup(float guiX) {
                 return http_get_image(
                     producerthread,
                     urls.get_key(),
-                    urls.skip(0),
+                    urls,
                     halts);
             }).
         merge().
