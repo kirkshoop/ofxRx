@@ -15,7 +15,7 @@ ofxFlying::ofxFlying(ofxCommon c)
 
 void ofxFlying::setup(float guiX) {
 
-    message = "Time flies like an arrow";
+    message = "CppCon 2014 - The first of many!";
 
     gui.setup();
     
