@@ -22,14 +22,16 @@ Keyboard::~Keyboard() {
 
 void Keyboard::setup(){
     if(!registered) {
-        ofRegisterKeyEvents(this);
+        ofAddListener(ofEvents().keyPressed,this,&Keyboard::keyPressed);
+        ofAddListener(ofEvents().keyReleased,this,&Keyboard::keyReleased);
         registered = true;
     }
 }
 
 void Keyboard::clear() {
     if(registered) {
-        ofUnregisterKeyEvents(this);
+        ofRemoveListener(ofEvents().keyPressed,this,&Keyboard::keyPressed);
+        ofRemoveListener(ofEvents().keyReleased,this,&Keyboard::keyReleased);
         registered = false;
     }
 }

@@ -46,22 +46,17 @@ public:
     HttpClient();
 
     rx::observable<HttpProgress> get(const std::string& uri,
-                   const Poco::Net::NameValueCollection& formFields = Poco::Net::NameValueCollection(),
-                   const std::string& httpVersion = Poco::Net::HTTPMessage::HTTP_1_1,
-                   const Poco::UUID& requestId = HTTP::BaseRequest::generateUUID());
+                   const std::string& httpVersion = Poco::Net::HTTPMessage::HTTP_1_1);
 
     /// \brief Construct a PostRequest with a given uri and http version.
     /// \param uri the Post endpoint uri.
     /// \param formFields A collection of form fields.
     /// \param formParts A collection of form parts.
     /// \param httpVersion Either HTTP/1.0 or HTTP/1.1.
-    /// \param requestId A unique UUID for this request.
+    /// \param requestId A unique ID for this request.
     /// 
     rx::observable<HttpProgress> post(const std::string& uri,
-                    const Poco::Net::NameValueCollection formFields = Poco::Net::NameValueCollection(),
-                    const HTTP::PostRequest::FormParts formParts = HTTP::PostRequest::FormParts(),
-                    const std::string& httpVersion = Poco::Net::HTTPMessage::HTTP_1_1,
-                    const Poco::UUID& requestId = HTTP::BaseRequest::generateUUID());
+                    const std::string& httpVersion = Poco::Net::HTTPMessage::HTTP_1_1);
 
     /// \brief Submit a request.
     ///

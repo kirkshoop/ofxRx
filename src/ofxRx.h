@@ -34,11 +34,11 @@ struct ofxRxTrace : rxcpp::trace_noop
     
     inline void setup()
     {
-        ofRegisterMouseEvents(this);
+        ofAddListener(ofEvents().mousePressed,this,&ofxRxTrace::mousePressed);
 
         gui.setup();
 
-        gui.add(show_stream_hud.setup("HUD", false));
+        gui.add(show_stream_hud.setup("HUD", true));
         gui.add(show_silent.setup("inactive", false));
         
         gui.setPosition(ofGetWidth() - gui.getWidth() - 20, 20);
@@ -70,8 +70,6 @@ struct ofxRxTrace : rxcpp::trace_noop
     subscribed_type silent;
     std::atomic<bool> valid;
 
-    inline void mouseMoved(ofMouseEventArgs & args) {}
-    inline void mouseDragged(ofMouseEventArgs & args) {}
     inline void mousePressed(ofMouseEventArgs & args) {
         auto clicked = std::find_if(active.begin(), active.end(),
             [&](const subscribed_type::value_type& s){
@@ -81,7 +79,6 @@ struct ofxRxTrace : rxcpp::trace_noop
             clicked->second.show_from = !clicked->second.show_from;
         }
     }
-    inline void mouseReleased(ofMouseEventArgs & args) {}
 
     template<class Subscriber>
     inline void create_subscriber(const Subscriber& s) {
@@ -145,10 +142,9 @@ struct ofxRxTrace : rxcpp::trace_noop
         active[tkey].from.push_back(fkey);
         active[tkey].status = "operated";
     }
-    
+
     template<class SubscriptionState>
     inline void unsubscribe_enter(const SubscriptionState& s) {
-        if(!valid || !ofThread::isMainThread()) {return;}
     }
     
     template<class Subscriber, class T>
@@ -170,8 +166,9 @@ struct ofxRxTrace : rxcpp::trace_noop
     
     template<class Subscriber>
     inline void on_error_enter(const Subscriber& s, const std::exception_ptr&) {
+        if(!valid || !ofThread::isMainThread()) {return;}
         auto key = s.get_id();
-        if(!valid || !ofThread::isMainThread() || active.count(key) == 0 ) {return;}
+        if(active.count(key) == 0 ) {return;}
         if ((key.id & 0xF0000000) != 0xB0000000) std::terminate();
         active[key].status = "errored";
         active[key].errored = true;
@@ -181,8 +178,9 @@ struct ofxRxTrace : rxcpp::trace_noop
     
     template<class Subscriber>
     inline void on_completed_enter(const Subscriber& s) {
+        if(!valid || !ofThread::isMainThread()) {return;}
         auto key = s.get_id();
-        if(!valid || !ofThread::isMainThread() || active.count(key) == 0 ) {return;}
+        if(active.count(key) == 0 ) {return;}
         if ((key.id & 0xF0000000) != 0xB0000000) std::terminate();
         active[key].status = "completed";
         active[key].completed = true;
@@ -190,18 +188,21 @@ struct ofxRxTrace : rxcpp::trace_noop
         active[key].marbles.push_back(marble{"on_completed", now, now});
     }
     
-    void drawSubscribed(unsigned long long now, int height, ofColor glyphColor, ofColor textColor, subscribed& s) {
+    void drawSubscribed(unsigned long long now, int height, ofColor glyphColor, ofColor textColor, subscribed& s, std::string prefix) {
         
         const int center = height/2;
         const int radius = height/2;
         const int lineHalfWidth = radius/4;
         const unsigned long long second = 1000000;
+        const unsigned long long size = 10 * second;
         const unsigned long long end = now;
-        const unsigned long long begin = end - second;
-        const unsigned long long size = end - begin;
+        // clamp begin to the beginning of time (0)
+        const unsigned long long begin = end < size ? 0 : end - size;
+        const float widthRatio = float(end - begin) / size;
         const int width = ofGetWidth();
+        const int minwidth = width - std::round(width * widthRatio);
 
-        if (!s.marbles.empty() && s.marbles.front().start < (begin - (2 * second))) {
+        if (!s.marbles.empty() && s.marbles.front().end < begin) {
             s.marbles.erase(
                 s.marbles.begin(),
                 std::lower_bound(
@@ -209,38 +210,41 @@ struct ofxRxTrace : rxcpp::trace_noop
                     s.marbles.end(),
                     marble{nullptr, begin, begin},
                     [](const marble& lhs, const marble& rhs){
-                        return lhs.start < rhs.start;
+                        return lhs.end < rhs.end;
                     }));
         }
-        
+
         for (auto& m : s.marbles)
         {
             if (m.end < begin) continue;
-            ofSetColor(glyphColor);
             ofSetLineWidth(lineHalfWidth*2);
-            auto xs = ofMap(end-m.start, 0, size, width - radius, 0 + radius);
-            auto xe = ofMap(end-m.end, 0, size, width - radius, 0 + radius);
+            auto xs = ofMap(m.start, end, begin, width, minwidth);
+            auto xe = ofMap(m.end, end, begin, width, minwidth);
+            const int middle = xs + ((xe-xs)/2);
             switch(m.method[3])
             {
                 case 'n':
                     {
-                        ofLine(xs - radius, center - lineHalfWidth, xe + radius, center - lineHalfWidth);
+                        ofSetColor(glyphColor);
+                        ofDrawLine(xs, center, xe, center);
+                        ofDrawTriangle(middle, height, middle - radius, center, middle + radius, center);
                     }
                     break;
                 case 'e':
                     {
                         ofSetColor(ofColor::red);
-                        ofCircle(xs, center, radius / 1.5);
+                        ofDrawCircle(xs + ((xe-xs)/2), height, radius * 0.5);
                         // slanted black line
                         ofSetColor(ofColor::black);
-                        ofLine(xs - radius, height, xe + radius, 0);
+                        ofDrawLine(xs, 0, xe, height);
                     }
                     break;
                 case 'c':
                     {
                         // straight black line
                         ofSetColor(ofColor::black);
-                        ofLine(xs + (center-lineHalfWidth), height, xs + (center-lineHalfWidth), 0);
+                        ofDrawLine(xs, 0, xs, height);
+                        ofDrawLine(xe, 0, xe, height);
                     }
                     break;
             }
@@ -249,7 +253,7 @@ struct ofxRxTrace : rxcpp::trace_noop
         s.errored ? ofSetColor(ofColor::red) : s.completed ? ofSetColor(ofColor::blue) : s.from.empty() ? ofSetColor(ofColor::limeGreen) : ofSetColor(textColor) ;
         
         std::stringstream ss;
-        ss << s.id << ": of " << s.value_type << " status: " << s.status << " -> marbles: " << s.marbles.size();
+        ss << prefix << s.id << ": of " << s.value_type << " status: " << s.status << " -> marbles: " << s.marbles.size();
         if (s.marbles.size() > 0)
         {
             ss << ", from: " << s.marbles.front().start / second << "s, to: " << s.marbles.back().end / second << "s";
@@ -264,7 +268,7 @@ struct ofxRxTrace : rxcpp::trace_noop
         }
         ss << "]";
         
-        ofDrawBitmapString(ss.str(), ofPoint(10, 14, 0));
+        ofDrawBitmapString(ss.str(), ofPoint(radius, height, 0));
         
     }
 
@@ -272,6 +276,7 @@ struct ofxRxTrace : rxcpp::trace_noop
         auto now = ofGetElapsedTimeMicros();
         int y = 0;
         const int height = 14;
+        const int windowheight = ofGetHeight();
 
         std::vector<subscribed_type::value_type*> roots;
         std::transform(active.begin(), active.end(), std::back_inserter(roots),
@@ -330,15 +335,25 @@ struct ofxRxTrace : rxcpp::trace_noop
 
             for (;cursor != end; ++cursor)
             {
+                std::string prefix;
+                if (subscrib->second.show_from) {
+                    if (end - 1 == cursor) {
+                        prefix = "[-] ";
+                    } else {
+                        prefix = " v  ";
+                    }
+                } else if (end - 1 == cursor && stream.size() > 1) {
+                    prefix = "[+] ";
+                }
                 auto& s = *cursor;
 
-                if (y > ofGetHeight()) {break;}
+                if (y > windowheight) {break;}
                 
                 ofPushMatrix();
                 ofTranslate(0, y);
                 ofFill();
                 
-                drawSubscribed(now, height, ofColor::green, ofColor::white, s->second);
+                drawSubscribed(now, height, ofColor::green, ofColor::white, s->second, prefix);
                 
                 ofPopMatrix();
                 
@@ -350,14 +365,14 @@ struct ofxRxTrace : rxcpp::trace_noop
         if (show_silent) {
             for (auto& s : silent)
             {
-                if (y > ofGetHeight()) {break;}
+                if (y > windowheight) {break;}
                 
                 ofPushMatrix();
                 ofTranslate(0, y);
                 ofFill();
                 
                 s.second.y = y;
-                drawSubscribed(now, height, ofColor::red, ofColor::black, s.second);
+                drawSubscribed(now, height, ofColor::red, ofColor::black, s.second, "[x]");
                 
                 ofPopMatrix();
                 
@@ -367,8 +382,10 @@ struct ofxRxTrace : rxcpp::trace_noop
     }
 
     void draw() {
-        if (show_stream_hud) {
-            draw_hud();
+        if(valid) {
+            if (show_stream_hud) {
+                draw_hud();
+            }
         }
 
         gui.draw();
@@ -376,9 +393,28 @@ struct ofxRxTrace : rxcpp::trace_noop
 };
 
 auto rxcpp_trace_activity(rxcpp::trace_tag) -> ofxRxTrace;
+
+class ofxRxTraceApp : public ofBaseApp{
+public:
+    ofxRxTraceApp();
+    
+    inline void setup() {
+        hud.setup();
+    }
+    inline void draw() {
+        hud.draw();
+    }
+    
+    ofxRxTrace& hud;
+};
+
 #endif
 
 #include <rxcpp/rx.hpp>
+
+#if RXCPP_VIEW_TRACE
+inline ofxRxTraceApp::ofxRxTraceApp() : hud(rxcpp::trace_activity()) {}
+#endif
 
 namespace ofx {
 

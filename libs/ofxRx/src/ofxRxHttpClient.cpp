@@ -37,28 +37,16 @@ HttpClient::HttpClient()
 
 
 rx::observable<HttpProgress> HttpClient::get(const std::string& uri,
-                                       const Poco::Net::NameValueCollection& formFields,
-                                       const std::string& httpVersion,
-                                       const Poco::UUID& requestId)
+                                       const std::string& httpVersion)
 {
-    return request(new HTTP::GetRequest(uri,
-                                  formFields,
-                                  httpVersion,
-                                  requestId));
+    return request(new HTTP::GetRequest(uri, httpVersion));
 }
 
 
 rx::observable<HttpProgress> HttpClient::post(const std::string& uri,
-                                        const Poco::Net::NameValueCollection formFields,
-                                        const HTTP::PostRequest::FormParts formParts,
-                                        const std::string& httpVersion,
-                                        const Poco::UUID& requestId)
+                                        const std::string& httpVersion)
 {
-    return request(new HTTP::PostRequest(uri,
-                                  formFields,
-                                  formParts,
-                                  httpVersion,
-                                  requestId));
+    return request(new HTTP::PostRequest(uri, httpVersion));
 }
 
 
