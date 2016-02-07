@@ -20,10 +20,10 @@ struct is_lift_function_for {
     template<class CS, class CF>
     static tag_not_valid check(...);
 
-    typedef typename std::decay<S>::type for_type;
-    typedef typename std::decay<F>::type func_type;
+    typedef rxu::decay_t<S> for_type;
+    typedef rxu::decay_t<F> func_type;
     typedef decltype(check<for_type, func_type>(0)) detail_result;
-    static const bool value = is_subscriber<detail_result>::value && is_subscriber<for_type>::value && std::is_convertible<V, typename detail_result::value_type>::value;
+    static const bool value = is_subscriber<detail_result>::value && is_subscriber<for_type>::value && std::is_convertible<V, typename rxu::value_type_from<detail_result>::type>::value;
 };
 
 }
@@ -35,13 +35,13 @@ namespace detail {
 template<class ResultType, class SourceOperator, class Operator>
 struct lift_traits
 {
-    typedef typename std::decay<ResultType>::type result_value_type;
-    typedef typename std::decay<SourceOperator>::type source_operator_type;
-    typedef typename std::decay<Operator>::type operator_type;
+    typedef rxu::decay_t<ResultType> result_value_type;
+    typedef rxu::decay_t<SourceOperator> source_operator_type;
+    typedef rxu::decay_t<Operator> operator_type;
 
     typedef typename source_operator_type::value_type source_value_type;
 
-    static_assert(rxcpp::detail::is_lift_function_for<source_value_type, subscriber<result_value_type>, operator_type>::value, "lift Operator must be a function with the signature subscriber<source_value_type, ...>(subscriber<result_value_type, ...>)");
+    static const bool value = rxcpp::detail::is_lift_function_for<source_value_type, subscriber<result_value_type>, operator_type>::value;
 };
 
 template<class ResultType, class SourceOperator, class Operator>
@@ -70,14 +70,15 @@ struct lift_operator : public operator_base<typename lift_traits<ResultType, Sou
 template<class ResultType, class Operator>
 class lift_factory
 {
-    typedef typename std::decay<Operator>::type operator_type;
+    typedef rxu::decay_t<Operator> operator_type;
     operator_type chain;
 public:
     lift_factory(operator_type op) : chain(std::move(op)) {}
     template<class Observable>
-    auto operator()(Observable&& source)
+    auto operator()(const Observable& source)
         -> decltype(source.template lift<ResultType>(chain)) {
         return      source.template lift<ResultType>(chain);
+        static_assert(rxcpp::detail::is_lift_function_for<rxu::value_type_t<Observable>, subscriber<ResultType>, Operator>::value, "Function passed for lift() must have the signature subscriber<...>(subscriber<T, ...>)");
     }
 };
 

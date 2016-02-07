@@ -2,8 +2,8 @@
 
 #pragma once
 
-#if !defined(RXCPP_OPERATORS_RX_DISTINCT_UNTIL_CHANGED_HPP)
-#define RXCPP_OPERATORS_RX_DISTINCT_UNTIL_CHANGED_HPP
+#if !defined(RXCPP_OPERATORS_RX_DISTINCT_HPP)
+#define RXCPP_OPERATORS_RX_DISTINCT_HPP
 
 #include "../rx-includes.hpp"
 
@@ -13,28 +13,31 @@ namespace operators {
 
 namespace detail {
 
+template<class T, class Enable = void>
+struct distinct {};
+
 template<class T>
-struct distinct_until_changed
+struct distinct<T, typename std::enable_if<is_hashable<T>::value>::type>
 {
     typedef rxu::decay_t<T> source_value_type;
 
     template<class Subscriber>
-    struct distinct_until_changed_observer
+    struct distinct_observer
     {
-        typedef distinct_until_changed_observer<Subscriber> this_type;
+        typedef distinct_observer<Subscriber> this_type;
         typedef source_value_type value_type;
         typedef rxu::decay_t<Subscriber> dest_type;
         typedef observer<value_type, this_type> observer_type;
         dest_type dest;
-        mutable rxu::detail::maybe<source_value_type> remembered;
+        mutable std::unordered_set<source_value_type, rxcpp::filtered_hash<source_value_type>> remembered;
 
-        distinct_until_changed_observer(dest_type d)
-            : dest(d)
+        distinct_observer(dest_type d)
+                : dest(d)
         {
         }
         void on_next(source_value_type v) const {
-            if (remembered.empty() || v != remembered.get()) {
-                remembered.reset(v);
+            if (remembered.empty() || remembered.count(v) == 0) {
+                remembered.insert(v);
                 dest.on_next(v);
             }
         }
@@ -52,26 +55,26 @@ struct distinct_until_changed
 
     template<class Subscriber>
     auto operator()(Subscriber dest) const
-        -> decltype(distinct_until_changed_observer<Subscriber>::make(std::move(dest))) {
-        return      distinct_until_changed_observer<Subscriber>::make(std::move(dest));
+    -> decltype(distinct_observer<Subscriber>::make(std::move(dest))) {
+        return      distinct_observer<Subscriber>::make(std::move(dest));
     }
 };
 
-class distinct_until_changed_factory
+class distinct_factory
 {
 public:
     template<class Observable>
     auto operator()(Observable&& source)
-        -> decltype(source.template lift<rxu::value_type_t<rxu::decay_t<Observable>>>(distinct_until_changed<rxu::decay_t<Observable>>::value_type)) {
-        return      source.template lift<rxu::value_type_t<rxu::decay_t<Observable>>>(distinct_until_changed<rxu::decay_t<Observable>>::value_type);
+            -> decltype(source.template lift<rxu::value_type_t<rxu::decay_t<Observable>>>(distinct<rxu::decay_t<Observable>>::value_type)) {
+        return      source.template lift<rxu::value_type_t<rxu::decay_t<Observable>>>(distinct<rxu::decay_t<Observable>>::value_type);
     }
 };
 
 }
 
-inline auto distinct_until_changed()
-    ->      detail::distinct_until_changed_factory {
-    return  detail::distinct_until_changed_factory();
+inline auto distinct()
+->      detail::distinct_factory {
+    return  detail::distinct_factory();
 }
 
 }

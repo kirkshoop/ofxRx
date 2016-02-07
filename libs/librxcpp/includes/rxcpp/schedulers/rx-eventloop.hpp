@@ -56,7 +56,7 @@ private:
 
     mutable thread_factory factory;
     scheduler newthread;
-    mutable std::atomic<size_t> count;
+    mutable std::atomic<std::size_t> count;
     std::vector<worker> loops;
 
 public:
@@ -68,7 +68,7 @@ public:
         , count(0)
     {
         auto remaining = std::max(std::thread::hardware_concurrency(), unsigned(4));
-        while (--remaining) {
+        while (remaining--) {
             loops.push_back(newthread.create_worker());
         }
     }
@@ -78,7 +78,7 @@ public:
         , count(0)
     {
         auto remaining = std::max(std::thread::hardware_concurrency(), unsigned(4));
-        while (--remaining) {
+        while (remaining--) {
             loops.push_back(newthread.create_worker());
         }
     }
@@ -91,13 +91,13 @@ public:
     }
 
     virtual worker create_worker(composite_subscription cs) const {
-        return worker(cs, std::shared_ptr<loop_worker>(new loop_worker(cs, loops[++count % loops.size()])));
+        return worker(cs, std::make_shared<loop_worker>(cs, loops[++count % loops.size()]));
     }
 };
 
 inline scheduler make_event_loop() {
-    static auto loop = make_scheduler<event_loop>();
-    return loop;
+    static scheduler instance = make_scheduler<event_loop>();
+    return instance;
 }
 inline scheduler make_event_loop(thread_factory tf) {
     return make_scheduler<event_loop>(tf);

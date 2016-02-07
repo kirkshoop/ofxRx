@@ -19,7 +19,7 @@ class synchronize_observer : public detail::multicast_observer<T>
     typedef synchronize_observer<T, Coordination> this_type;
     typedef detail::multicast_observer<T> base_type;
 
-    typedef typename std::decay<Coordination>::type coordination_type;
+    typedef rxu::decay_t<Coordination> coordination_type;
     typedef typename coordination_type::coordinator_type coordinator_type;
     typedef typename coordinator_type::template get<subscriber<T>>::type output_type;
 
@@ -41,9 +41,8 @@ class synchronize_observer : public detail::multicast_observer<T>
 
         mutable std::mutex lock;
         mutable std::condition_variable wake;
-        mutable queue_type queue;
+        mutable queue_type fill_queue;
         composite_subscription lifetime;
-        rxsc::worker processor;
         mutable typename mode::type current;
         coordinator_type coordinator;
         output_type destination;
@@ -61,17 +60,17 @@ class synchronize_observer : public detail::multicast_observer<T>
                         std::unique_lock<std::mutex> guard(lock);
                         if (!destination.is_subscribed()) {
                             current = mode::Disposed;
-                            queue.clear();
+                            fill_queue.clear();
                             guard.unlock();
                             lifetime.unsubscribe();
                             return;
                         }
-                        if (queue.empty()) {
+                        if (fill_queue.empty()) {
                             current = mode::Empty;
                             return;
                         }
-                        auto notification = std::move(queue.front());
-                        queue.pop_front();
+                        auto notification = std::move(fill_queue.front());
+                        fill_queue.pop_front();
                         guard.unlock();
                         notification->accept(destination);
                         self();
@@ -106,7 +105,7 @@ class synchronize_observer : public detail::multicast_observer<T>
         void on_next(V v) const {
             if (lifetime.is_subscribed()) {
                 std::unique_lock<std::mutex> guard(lock);
-                queue.push_back(notification_type::on_next(std::move(v)));
+                fill_queue.push_back(notification_type::on_next(std::move(v)));
                 ensure_processing(guard);
             }
             wake.notify_one();
@@ -114,7 +113,7 @@ class synchronize_observer : public detail::multicast_observer<T>
         void on_error(std::exception_ptr e) const {
             if (lifetime.is_subscribed()) {
                 std::unique_lock<std::mutex> guard(lock);
-                queue.push_back(notification_type::on_error(e));
+                fill_queue.push_back(notification_type::on_error(e));
                 ensure_processing(guard);
             }
             wake.notify_one();
@@ -122,7 +121,7 @@ class synchronize_observer : public detail::multicast_observer<T>
         void on_completed() const {
             if (lifetime.is_subscribed()) {
                 std::unique_lock<std::mutex> guard(lock);
-                queue.push_back(notification_type::on_completed());
+                fill_queue.push_back(notification_type::on_completed());
                 ensure_processing(guard);
             }
             wake.notify_one();
@@ -183,7 +182,7 @@ public:
     observable<T> get_observable() const {
         auto keepAlive = s;
         return make_observable_dynamic<T>([=](subscriber<T> o){
-            keepAlive.add(s.get_subscriber(), std::move(o));
+            keepAlive.add(keepAlive.get_subscriber(), std::move(o));
         });
     }
 };
@@ -223,12 +222,12 @@ class synchronize_in_one_worker : public coordination_base
         template<class Subscriber>
         auto out(Subscriber s) const
             -> Subscriber {
-            return std::move(s);
+            return s;
         }
         template<class F>
         auto act(F f) const
             -> F {
-            return std::move(f);
+            return f;
         }
     };
 

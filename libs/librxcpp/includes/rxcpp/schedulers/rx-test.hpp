@@ -124,7 +124,7 @@ public:
 
 public:
     test_type()
-        : state(new test_type_state())
+        : state(std::make_shared<test_type_state>())
     {
     }
 
@@ -133,8 +133,7 @@ public:
     }
 
     virtual worker create_worker(composite_subscription cs) const {
-        std::shared_ptr<test_type_worker> wi(new test_type_worker(state));
-        return worker(cs, wi);
+        return worker(cs, std::make_shared<test_type_worker>(state));
     }
 
     bool is_enabled() const {return state->is_enabled();}
@@ -143,8 +142,7 @@ public:
     }
 
     std::shared_ptr<test_type_worker> create_test_type_worker_interface() const {
-        std::shared_ptr<test_type_worker> wi(new test_type_worker(state));
-        return wi;
+        return std::make_shared<test_type_worker>(state);
     }
 
     template<class T>
@@ -174,7 +172,7 @@ public:
         abort();
     }
     virtual std::vector<rxn::subscription> subscriptions() const {
-        abort(); return std::vector<rxn::subscription>();
+        abort();
     }
 
     virtual std::vector<recorded_type> messages() const {
@@ -188,7 +186,7 @@ subscriber<T, rxt::testable_observer<T>> test_type::test_type_worker::make_subsc
     typedef typename rxn::notification<T> notification_type;
     typedef rxn::recorded<typename notification_type::type> recorded_type;
 
-    std::shared_ptr<mock_observer<T>> ts(new mock_observer<T>(state));
+    auto ts = std::make_shared<mock_observer<T>>(state);
 
     return rxcpp::make_subscriber<T>(rxt::testable_observer<T>(ts, make_observer_dynamic<T>(
           // on_next
@@ -247,7 +245,7 @@ public:
             auto n = message.value();
             sc->schedule_relative(message.time(), make_schedulable(
                 controller,
-                [n, o](const schedulable& scbl) {
+                [n, o](const schedulable&) {
                     if (o.is_subscribed()) {
                         n->accept(o);
                     }
@@ -272,7 +270,7 @@ public:
 template<class T>
 rxt::testable_observable<T> test_type::make_cold_observable(std::vector<rxn::recorded<std::shared_ptr<rxn::detail::notification_base<T>>>> messages) const
 {
-    auto co = std::shared_ptr<cold_observable<T>>(new cold_observable<T>(state, create_worker(composite_subscription()), std::move(messages)));
+    auto co = std::make_shared<cold_observable<T>>(state, create_worker(composite_subscription()), std::move(messages));
     return rxt::testable_observable<T>(co);
 }
 
@@ -286,7 +284,7 @@ class hot_observable
     typedef subscriber<T> observer_type;
     mutable std::vector<recorded_type> mv;
     mutable std::vector<rxn::subscription> sv;
-    mutable std::vector<observer_type> observers;
+    mutable std::list<observer_type> observers;
     mutable worker controller;
 
 public:
@@ -300,7 +298,7 @@ public:
             auto n = message.value();
             sc->schedule_absolute(message.time(), make_schedulable(
                 controller,
-                [this, n](const schedulable& scbl) {
+                [this, n](const schedulable&) {
                     auto local = this->observers;
                     for (auto& o : local) {
                         if (o.is_subscribed()) {
@@ -311,14 +309,18 @@ public:
         }
     }
 
+    virtual ~hot_observable() {}
+
     virtual void on_subscribe(observer_type o) const {
-        observers.push_back(o);
+        auto olocation = observers.insert(observers.end(), o);
+
         sv.push_back(rxn::subscription(sc->clock()));
         auto index = sv.size() - 1;
 
         auto sharedThis = std::static_pointer_cast<const this_type>(this->shared_from_this());
-        o.add([sharedThis, index]() {
+        o.add([sharedThis, index, olocation]() {
             sharedThis->sv[index] = rxn::subscription(sharedThis->sv[index].subscribe(), sharedThis->sc->clock());
+            sharedThis->observers.erase(olocation);
         });
     }
 
@@ -347,7 +349,7 @@ struct is_create_source_function
     template<class CF>
     static not_void check(...);
 
-    static const bool value = is_observable<decltype(check<typename std::decay<F>::type>(0))>::value;
+    static const bool value = is_observable<decltype(check<rxu::decay_t<F>>(0))>::value;
 };
 
 }
@@ -378,43 +380,32 @@ public:
 
         messages() {}
 
-        struct on_next_factory
-        {
-            recorded_type operator()(long ticks, T value) const {
-                return recorded_type(ticks, notification_type::on_next(value));
-            }
-        };
-        struct on_completed_factory
-        {
-            recorded_type operator()(long ticks) const {
-                return recorded_type(ticks, notification_type::on_completed());
-            }
-        };
-        struct on_error_factory
-        {
-            template<class Exception>
-            recorded_type operator()(long ticks, Exception&& e) const {
-                return recorded_type(ticks, notification_type::on_error(std::forward<Exception>(e)));
-            }
-        };
+        template<typename U>
+        static recorded_type next(long ticks, U value) {
+            return recorded_type(ticks, notification_type::on_next(std::move(value)));
+        }
 
-        static const on_next_factory next;
-        static const on_completed_factory completed;
-        static const on_error_factory error;
+        static recorded_type completed(long ticks) {
+            return recorded_type(ticks, notification_type::on_completed());
+        }
 
-        struct subscribe_factory
-        {
-            rxn::subscription operator()(long subscribe, long unsubscribe) const {
-                return rxn::subscription(subscribe, unsubscribe);
-            }
-        };
-        static const subscribe_factory subscribe;
+        template<typename Exception>
+        static recorded_type error(long ticks, Exception&& e) {
+            return recorded_type(ticks, notification_type::on_error(std::forward<Exception>(e)));
+        }
+
+        static rxn::subscription subscribe(long subscribe, long unsubscribe) {
+            return rxn::subscription(subscribe, unsubscribe);
+        }
     };
 
     class test_worker : public worker
     {
         std::shared_ptr<detail::test_type::test_type_worker> tester;
     public:
+        
+        ~test_worker() {
+        }
 
         explicit test_worker(composite_subscription cs, std::shared_ptr<detail::test_type::test_type_worker> t)
             : worker(cs, std::static_pointer_cast<worker_interface>(t))
@@ -451,6 +442,21 @@ public:
             tester->schedule_relative(when, make_schedulable(*this, std::forward<Arg0>(a0), std::forward<ArgN>(an)...));
         }
 
+        void advance_to(long time) const
+        {
+            tester->advance_to(time);
+        }
+
+        void advance_by(long time) const
+        {
+            tester->advance_by(time);
+        }
+
+        void sleep(long time) const
+        {
+            tester->sleep(time);
+        }
+
         template<class T, class F>
         auto start(F createSource, long created, long subscribed, long unsubscribed) const
             -> subscriber<T, rxt::testable_observer<T>>
@@ -469,15 +475,15 @@ public:
                 {
                 }
             };
-            std::shared_ptr<state_type> state(new state_type(this->make_subscriber<T>()));
+            auto state = std::make_shared<state_type>(this->make_subscriber<T>());
 
-            schedule_absolute(created, [createSource, state](const schedulable& scbl) {
+            schedule_absolute(created, [createSource, state](const schedulable&) {
                 state->source.reset(new typename state_type::source_type(createSource()));
             });
-            schedule_absolute(subscribed, [state](const schedulable& scbl) {
+            schedule_absolute(subscribed, [state](const schedulable&) {
                 state->source->subscribe(state->o);
             });
-            schedule_absolute(unsubscribed, [state](const schedulable& scbl) {
+            schedule_absolute(unsubscribed, [state](const schedulable&) {
                 state->o.unsubscribe();
             });
 
@@ -512,21 +518,21 @@ public:
         auto start(F createSource, long created, long subscribed, long unsubscribed) const
             -> typename std::enable_if<detail::is_create_source_function<F>::value, start_traits<F>>::type::subscriber_type
         {
-            return start<typename start_traits<F>::value_type>(std::move(createSource), created, subscribed, unsubscribed);
+            return start<rxu::value_type_t<start_traits<F>>>(std::move(createSource), created, subscribed, unsubscribed);
         }
 
         template<class F>
         auto start(F createSource, long unsubscribed) const
             -> typename std::enable_if<detail::is_create_source_function<F>::value, start_traits<F>>::type::subscriber_type
         {
-            return start<typename start_traits<F>::value_type>(std::move(createSource), created_time, subscribed_time, unsubscribed);
+            return start<rxu::value_type_t<start_traits<F>>>(std::move(createSource), created_time, subscribed_time, unsubscribed);
         }
 
         template<class F>
         auto start(F createSource) const
             -> typename std::enable_if<detail::is_create_source_function<F>::value, start_traits<F>>::type::subscriber_type
         {
-            return start<typename start_traits<F>::value_type>(std::move(createSource), created_time, subscribed_time, unsubscribed_time);
+            return start<rxu::value_type_t<start_traits<F>>>(std::move(createSource), created_time, subscribed_time, unsubscribed_time);
         }
 
         void start() const {
@@ -555,7 +561,7 @@ public:
         return tester->make_hot_observable(std::move(messages));
     }
 
-    template<class T, size_t size>
+    template<class T, std::size_t size>
     auto make_hot_observable(const T (&arr) [size]) const
         -> decltype(tester->make_hot_observable(std::vector<T>())) {
         return      tester->make_hot_observable(rxu::to_vector(arr));
@@ -572,7 +578,7 @@ public:
         return tester->make_cold_observable(std::move(messages));
     }
 
-    template<class T, size_t size>
+    template<class T, std::size_t size>
     auto make_cold_observable(const T (&arr) [size]) const
         -> decltype(tester->make_cold_observable(std::vector<T>())) {
         return      tester->make_cold_observable(rxu::to_vector(arr));
@@ -585,28 +591,16 @@ public:
     }
 };
 
-template<class T>
-//static
-RXCPP_SELECT_ANY const typename test::messages<T>::on_next_factory test::messages<T>::next = test::messages<T>::on_next_factory();
-
-template<class T>
-//static
-RXCPP_SELECT_ANY const typename test::messages<T>::on_completed_factory test::messages<T>::completed = test::messages<T>::on_completed_factory();
-
-template<class T>
-//static
-RXCPP_SELECT_ANY const typename test::messages<T>::on_error_factory test::messages<T>::error = test::messages<T>::on_error_factory();
-
-template<class T>
-//static
-RXCPP_SELECT_ANY const typename test::messages<T>::subscribe_factory test::messages<T>::subscribe = test::messages<T>::subscribe_factory();
-
-
 
 inline test make_test() {
     return test(std::make_shared<detail::test_type>());
 }
 
+}
+
+inline identity_one_worker identity_test() {
+    static identity_one_worker r(rxsc::make_test());
+    return r;
 }
 
 }

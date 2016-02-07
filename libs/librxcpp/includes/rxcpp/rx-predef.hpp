@@ -19,17 +19,13 @@ inline auto trace_activity() -> decltype(rxcpp_trace_activity(trace_tag()))& {
 
 
 struct tag_action {};
+template<class T, class C = rxu::types_checked>
+struct is_action : public std::false_type {};
+
 template<class T>
-class is_action
-{
-    struct not_void {};
-    template<class C>
-    static typename C::action_tag* check(int);
-    template<class C>
-    static not_void check(...);
-public:
-    static const bool value = std::is_convertible<decltype(check<typename std::decay<T>::type>(0)), tag_action*>::value;
-};
+struct is_action<T, typename rxu::types_checked_from<typename T::action_tag>::type>
+    : public std::is_convertible<typename T::action_tag*, tag_action*> {};
+
 
 struct tag_worker {};
 template<class T>
@@ -41,7 +37,7 @@ class is_worker
     template<class C>
     static not_void check(...);
 public:
-    static const bool value = std::is_convertible<decltype(check<typename std::decay<T>::type>(0)), tag_worker*>::value;
+    static const bool value = std::is_convertible<decltype(check<rxu::decay_t<T>>(0)), tag_worker*>::value;
 };
 
 struct tag_scheduler {};
@@ -54,7 +50,7 @@ class is_scheduler
     template<class C>
     static not_void check(...);
 public:
-    static const bool value = std::is_convertible<decltype(check<typename std::decay<T>::type>(0)), tag_scheduler*>::value;
+    static const bool value = std::is_convertible<decltype(check<rxu::decay_t<T>>(0)), tag_scheduler*>::value;
 };
 
 struct tag_schedulable {};
@@ -67,15 +63,27 @@ class is_schedulable
     template<class C>
     static not_void check(...);
 public:
-    static const bool value = std::is_convertible<decltype(check<typename std::decay<T>::type>(0)), tag_schedulable*>::value;
+    static const bool value = std::is_convertible<decltype(check<rxu::decay_t<T>>(0)), tag_schedulable*>::value;
 };
 
+namespace detail
+{
 
-template<class T>
-class dynamic_observer;
+struct stateless_observer_tag {};
 
-template<class T, class I = dynamic_observer<T>>
+}
+
+// state with optional overrides
+template<class T, class State = void, class OnNext = void, class OnError = void, class OnCompleted = void>
 class observer;
+
+// no state with optional overrides
+template<class T, class OnNext, class OnError, class OnCompleted>
+class observer<T, detail::stateless_observer_tag, OnNext, OnError, OnCompleted>;
+
+// virtual functions forward to dynamically allocated shared observer instance.
+template<class T>
+class observer<T, void, void, void, void>;
 
 struct tag_observer {};
 template<class T>
@@ -86,7 +94,7 @@ class is_observer
     template<class C>
     static void check(...);
 public:
-    static const bool value = std::is_convertible<decltype(check<typename std::decay<T>::type>(0)), tag_observer*>::value;
+    static const bool value = std::is_convertible<decltype(check<rxu::decay_t<T>>(0)), tag_observer*>::value;
 };
 
 struct tag_dynamic_observer {};
@@ -99,7 +107,7 @@ class is_dynamic_observer
     template<class C>
     static not_void check(...);
 public:
-    static const bool value = std::is_convertible<decltype(check<typename std::decay<T>::type>(0)), tag_dynamic_observer*>::value;
+    static const bool value = std::is_convertible<decltype(check<rxu::decay_t<T>>(0)), tag_dynamic_observer*>::value;
 };
 
 struct tag_subscriber {};
@@ -112,7 +120,7 @@ class is_subscriber
     template<class C>
     static not_void check(...);
 public:
-    static const bool value = std::is_convertible<decltype(check<typename std::decay<T>::type>(0)), tag_subscriber*>::value;
+    static const bool value = std::is_convertible<decltype(check<rxu::decay_t<T>>(0)), tag_subscriber*>::value;
 };
 
 struct tag_dynamic_observable {};
@@ -125,7 +133,7 @@ class is_dynamic_observable
     template<class C>
     static not_void check(...);
 public:
-    static const bool value = std::is_convertible<decltype(check<typename std::decay<T>::type>(0)), tag_dynamic_observable*>::value;
+    static const bool value = std::is_convertible<decltype(check<rxu::decay_t<T>>(0)), tag_dynamic_observable*>::value;
 };
 
 template<class T>
@@ -157,7 +165,7 @@ class is_observable
     template<class C>
     static void check(...);
 public:
-    static const bool value = std::is_convertible<decltype(check<typename std::decay<T>::type>(0)), tag_observable>::value;
+    static const bool value = std::is_convertible<decltype(check<rxu::decay_t<T>>(0)), tag_observable>::value;
 };
 
 struct tag_dynamic_connectable_observable : public tag_dynamic_observable {};
@@ -171,7 +179,7 @@ class is_dynamic_connectable_observable
     template<class C>
     static not_void check(...);
 public:
-    static const bool value = std::is_convertible<decltype(check<typename std::decay<T>::type>(0)), tag_dynamic_connectable_observable*>::value;
+    static const bool value = std::is_convertible<decltype(check<rxu::decay_t<T>>(0)), tag_dynamic_connectable_observable*>::value;
 };
 
 template<class T>
@@ -191,7 +199,7 @@ class is_connectable_observable
     template<class C>
     static void check(...);
 public:
-    static const bool value = std::is_convertible<decltype(check<typename std::decay<T>::type>(0)), tag_connectable_observable>::value;
+    static const bool value = std::is_convertible<decltype(check<rxu::decay_t<T>>(0)), tag_connectable_observable>::value;
 };
 
 struct tag_dynamic_grouped_observable : public tag_dynamic_observable {};
@@ -205,7 +213,7 @@ class is_dynamic_grouped_observable
     template<class C>
     static not_void check(...);
 public:
-    static const bool value = std::is_convertible<decltype(check<typename std::decay<T>::type>(0)), tag_dynamic_grouped_observable*>::value;
+    static const bool value = std::is_convertible<decltype(check<rxu::decay_t<T>>(0)), tag_dynamic_grouped_observable*>::value;
 };
 
 template<class K, class T>
@@ -228,7 +236,7 @@ class is_grouped_observable
     template<class C>
     static void check(...);
 public:
-    static const bool value = std::is_convertible<decltype(check<typename std::decay<T>::type>(0)), tag_grouped_observable>::value;
+    static const bool value = std::is_convertible<decltype(check<rxu::decay_t<T>>(0)), tag_grouped_observable>::value;
 };
 
 //

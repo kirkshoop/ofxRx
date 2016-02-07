@@ -22,8 +22,16 @@ typedef std::shared_ptr<action_type> action_ptr;
 typedef std::shared_ptr<worker_interface> worker_interface_ptr;
 typedef std::shared_ptr<const worker_interface> const_worker_interface_ptr;
 
+typedef std::weak_ptr<worker_interface> worker_interface_weak_ptr;
+typedef std::weak_ptr<const worker_interface> const_worker_interface_weak_ptr;
+
 typedef std::shared_ptr<scheduler_interface> scheduler_interface_ptr;
 typedef std::shared_ptr<const scheduler_interface> const_scheduler_interface_ptr;
+
+inline action_ptr shared_empty() {
+    static action_ptr shared_empty = std::make_shared<detail::action_type>();
+    return shared_empty;
+}
 
 }
 
@@ -38,6 +46,7 @@ typedef std::shared_ptr<const scheduler_interface> const_scheduler_interface_ptr
 class recursed
 {
     bool& isrequested;
+    recursed operator=(const recursed&);
 public:
     explicit recursed(bool& r)
         : isrequested(r)
@@ -56,6 +65,7 @@ class recurse
     bool& isallowed;
     mutable bool isrequested;
     recursed requestor;
+    recurse operator=(const recurse&);
 public:
     explicit recurse(bool& a)
         : isallowed(a)
@@ -86,6 +96,7 @@ class recursion
 {
     mutable bool isallowed;
     recurse recursor;
+    recursion operator=(const recursion&);
 public:
     recursion()
         : isallowed(true)
@@ -120,7 +131,6 @@ class action : public action_base
 {
     typedef action this_type;
     detail::action_ptr inner;
-    static detail::action_ptr shared_empty;
 public:
     action()
     {
@@ -132,7 +142,7 @@ public:
 
     /// return the empty action
     inline static action empty() {
-        return action(shared_empty);
+        return action(detail::shared_empty());
     }
 
     /// call the function
@@ -177,10 +187,12 @@ struct is_action_function
     template<class CF>
     static not_void check(...);
 
-    static const bool value = std::is_same<decltype(check<typename std::decay<F>::type>(0)), void>::value;
+    static const bool value = std::is_same<decltype(check<rxu::decay_t<F>>(0)), void>::value;
 };
 
 }
+
+class weak_worker;
 
 /// a worker ensures that all scheduled actions on the same instance are executed in-order with no overlap
 /// a worker ensures that all scheduled actions are unsubscribed when it is unsubscribed
@@ -191,6 +203,7 @@ class worker : public worker_base
     detail::worker_interface_ptr inner;
     composite_subscription lifetime;
     friend bool operator==(const worker&, const worker&);
+    friend class weak_worker;
 public:
     typedef scheduler_base::clock_type clock_type;
     typedef composite_subscription::weak_subscription weak_subscription;
@@ -317,6 +330,26 @@ inline bool operator!=(const worker& lhs, const worker& rhs) {
     return !(lhs == rhs);
 }
 
+class weak_worker
+{
+    detail::worker_interface_weak_ptr inner;
+    composite_subscription lifetime;
+
+public:
+    weak_worker()
+    {
+    }
+    explicit weak_worker(worker& owner)
+        : inner(owner.inner)
+        , lifetime(owner.lifetime)
+    {
+    }
+
+    worker lock() const {
+        return worker(lifetime, inner.lock());
+    }
+};
+
 class scheduler_interface
     : public std::enable_shared_from_this<scheduler_interface>
 {
@@ -341,6 +374,12 @@ struct schedulable_base :
     typedef tag_schedulable schedulable_tag;
 };
 
+/*!
+    \brief allows functions to be called at specified times and possibly in other contexts.
+
+    \ingroup group-core
+
+*/
 class scheduler : public scheduler_base
 {
     typedef scheduler this_type;
@@ -357,7 +396,7 @@ public:
     {
     }
     explicit scheduler(detail::const_scheduler_interface_ptr i)
-    : inner(std::move(std::const_pointer_cast<scheduler_interface>(i)))
+        : inner(std::const_pointer_cast<scheduler_interface>(i))
     {
     }
 
@@ -380,13 +419,16 @@ inline scheduler make_scheduler(ArgN&&... an) {
     return scheduler(std::static_pointer_cast<scheduler_interface>(std::make_shared<Scheduler>(std::forward<ArgN>(an)...)));
 }
 
+inline scheduler make_scheduler(std::shared_ptr<scheduler_interface> si) {
+    return scheduler(si);
+}
 
 class schedulable : public schedulable_base
 {
     typedef schedulable this_type;
 
     composite_subscription lifetime;
-    worker controller;
+    weak_worker controller;
     action activity;
     bool scoped;
     composite_subscription::weak_subscription action_scope;
@@ -433,7 +475,7 @@ class schedulable : public schedulable_base
         {
             // does not aquire recursion scope
         }
-        recursed_scope_type& operator=(const recursed_scope_type& o)
+        recursed_scope_type& operator=(const recursed_scope_type& )
         {
             // no change in recursion scope
             return *this;
@@ -458,7 +500,7 @@ public:
     ~schedulable()
     {
         if (scoped) {
-            controller.remove(action_scope);
+            controller.lock().remove(action_scope);
         }
     }
     schedulable()
@@ -469,7 +511,7 @@ public:
     /// action and worker share lifetime
     schedulable(worker q, action a)
         : lifetime(q.get_subscription())
-        , controller(std::move(q))
+        , controller(q)
         , activity(std::move(a))
         , scoped(false)
     {
@@ -477,19 +519,19 @@ public:
     /// action and worker have independent lifetimes
     schedulable(composite_subscription cs, worker q, action a)
         : lifetime(std::move(cs))
-        , controller(std::move(q))
+        , controller(q)
         , activity(std::move(a))
         , scoped(true)
-        , action_scope(controller.add(lifetime))
+        , action_scope(controller.lock().add(lifetime))
     {
     }
     /// inherit lifetimes
     schedulable(schedulable scbl, worker q, action a)
         : lifetime(scbl.get_subscription())
-        , controller(std::move(q))
+        , controller(q)
         , activity(std::move(a))
         , scoped(scbl.scoped)
-        , action_scope(scbl.scoped ? controller.add(lifetime) : weak_subscription())
+        , action_scope(scbl.scoped ? controller.lock().add(lifetime) : weak_subscription())
     {
     }
 
@@ -499,11 +541,11 @@ public:
     inline composite_subscription& get_subscription() {
         return lifetime;
     }
-    inline const worker& get_worker() const {
-        return controller;
+    inline const worker get_worker() const {
+        return controller.lock();
     }
-    inline worker& get_worker() {
-        return controller;
+    inline worker get_worker() {
+        return controller.lock();
     }
     inline const action& get_action() const {
         return activity;
@@ -564,24 +606,24 @@ public:
     // scheduler
     //
     inline clock_type::time_point now() const {
-        return controller.now();
+        return controller.lock().now();
     }
     /// put this on the queue of the stored scheduler to run asap
     inline void schedule() const {
         if (is_subscribed()) {
-            controller.schedule(*this);
+            get_worker().schedule(*this);
         }
     }
     /// put this on the queue of the stored scheduler to run at the specified time
     inline void schedule(clock_type::time_point when) const {
         if (is_subscribed()) {
-            controller.schedule(when, *this);
+            get_worker().schedule(when, *this);
         }
     }
     /// put this on the queue of the stored scheduler to run after a delay from now
     inline void schedule(clock_type::duration when) const {
         if (is_subscribed()) {
-            controller.schedule(when, *this);
+            get_worker().schedule(when, *this);
         }
     }
 
@@ -636,10 +678,6 @@ public:
 inline void action::operator()(const schedulable& s, const recurse& r) const {
     (*inner)(s, r);
 }
-
-//static
-RXCPP_SELECT_ANY detail::action_ptr action::shared_empty = detail::action_ptr(new detail::action_type());
-
 
 inline action make_action_empty() {
     return action::empty();
@@ -777,11 +815,12 @@ auto worker::schedule_periodically(clock_type::time_point initial, clock_type::d
 }
 template<class... ArgN>
 void worker::schedule_periodically_rebind(clock_type::time_point initial, clock_type::duration period, const schedulable& scbl, ArgN&&... an) const {
-    std::shared_ptr<clock_type::time_point> target(new clock_type::time_point(initial));
-    auto activity = make_schedulable(scbl, *this, std::forward<ArgN>(an)...);
+    auto keepAlive = *this;
+    auto target = std::make_shared<clock_type::time_point>(initial);
+    auto activity = make_schedulable(scbl, keepAlive, std::forward<ArgN>(an)...);
     auto periodic = make_schedulable(
         activity,
-        [target, period, activity](schedulable self) {
+        [keepAlive, target, period, activity](schedulable self) {
             // any recursion requests will be pushed to the scheduler queue
             recursion r(false);
             // call action
@@ -843,28 +882,28 @@ private:
         compare_elem
     > queue_type;
 
-    queue_type queue;
+    queue_type q;
 
     int64_t ordinal;
 public:
     const_reference top() const {
-        return queue.top().first;
+        return q.top().first;
     }
 
     void pop() {
-        queue.pop();
+        q.pop();
     }
 
     bool empty() const {
-        return queue.empty();
+        return q.empty();
     }
 
     void push(const item_type& value) {
-        queue.push(elem_type(value, ordinal++));
+        q.push(elem_type(value, ordinal++));
     }
 
     void push(item_type&& value) {
-        queue.push(elem_type(std::move(value), ordinal++));
+        q.push(elem_type(std::move(value), ordinal++));
     }
 };
 
@@ -876,6 +915,7 @@ namespace rxsc=schedulers;
 }
 
 #include "schedulers/rx-currentthread.hpp"
+#include "schedulers/rx-runloop.hpp"
 #include "schedulers/rx-newthread.hpp"
 #include "schedulers/rx-eventloop.hpp"
 #include "schedulers/rx-immediate.hpp"

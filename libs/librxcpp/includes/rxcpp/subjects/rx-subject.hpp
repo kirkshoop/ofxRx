@@ -15,9 +15,7 @@ namespace detail {
 
 template<class T>
 class multicast_observer
-    : public observer_base<T>
 {
-    typedef observer_base<T> base;
     typedef subscriber<T> observer_type;
     typedef std::vector<observer_type> list_type;
 
@@ -26,6 +24,7 @@ class multicast_observer
         enum type {
             Invalid = 0,
             Casting,
+            Disposed,
             Completed,
             Errored
         };
@@ -102,6 +101,15 @@ public:
     explicit multicast_observer(composite_subscription cs)
         : b(std::make_shared<binder_type>(cs))
     {
+        auto keepAlive = b;
+        b->state->lifetime.add([keepAlive](){
+            if (keepAlive->state->current == mode::Casting){
+                keepAlive->state->current = mode::Disposed;
+                keepAlive->current_completer.reset();
+                keepAlive->completer.reset();
+                ++keepAlive->state->generation;
+            }
+        });
     }
     trace_id get_id() const {
         return b->id;
@@ -144,6 +152,13 @@ public:
                 return;
             }
             break;
+        case mode::Disposed:
+            {
+                guard.unlock();
+                o.unsubscribe();
+                return;
+            }
+            break;
         default:
             abort();
         }
@@ -155,10 +170,12 @@ public:
             b->current_generation = b->state->generation;
             b->current_completer = b->completer;
         }
-        if (!b->current_completer || b->current_completer->observers.empty()) {
+
+        auto current_completer = b->current_completer;
+        if (!current_completer || current_completer->observers.empty()) {
             return;
         }
-        for (auto& o : b->current_completer->observers) {
+        for (auto& o : current_completer->observers) {
             if (o.is_subscribed()) {
                 o.on_next(v);
             }
@@ -236,7 +253,7 @@ public:
     observable<T> get_observable() const {
         auto keepAlive = s;
         return make_observable_dynamic<T>([=](subscriber<T> o){
-            keepAlive.add(s.get_subscriber(), std::move(o));
+            keepAlive.add(keepAlive.get_subscriber(), std::move(o));
         });
     }
 };

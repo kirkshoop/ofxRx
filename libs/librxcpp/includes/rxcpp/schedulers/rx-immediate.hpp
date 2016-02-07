@@ -56,7 +56,7 @@ private:
 
 public:
     immediate()
-        : wi(new immediate_worker())
+        : wi(std::make_shared<immediate_worker>())
     {
     }
     virtual ~immediate()
@@ -73,8 +73,8 @@ public:
 };
 
 inline const scheduler& make_immediate() {
-    static auto i = make_scheduler<immediate>();
-    return i;
+    static scheduler instance = make_scheduler<immediate>();
+    return instance;
 }
 
 }

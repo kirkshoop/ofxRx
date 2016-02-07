@@ -15,13 +15,19 @@ struct subscriber_base : public observer_base<T>, public subscription_base
     typedef tag_subscriber subscriber_tag;
 };
 
+/*!
+    \brief binds an observer that consumes values with a composite_subscription that controls lifetime.
+
+    \ingroup group-core
+
+*/
 template<class T, class Observer = observer<T>>
 class subscriber : public subscriber_base<T>
 {
     static_assert(!is_subscriber<Observer>::value, "not allowed to nest subscribers");
     static_assert(is_observer<Observer>::value, "subscriber must contain an observer<T, ...>");
     typedef subscriber<T, Observer> this_type;
-    typedef typename std::decay<Observer>::type observer_type;
+    typedef rxu::decay_t<Observer> observer_type;
 
     composite_subscription lifetime;
     observer_type destination;
@@ -44,11 +50,18 @@ class subscriber : public subscriber_base<T>
         template<class U>
         void operator()(U u) {
             trace_activity().on_next_enter(*that, u);
-            that->destination.on_next(std::move(u));
-            do_unsubscribe = false;
+            try {
+                that->destination.on_next(std::move(u));
+                do_unsubscribe = false;
+            } catch(...) {
+                auto ex = std::current_exception();
+                trace_activity().on_error_enter(*that, ex);
+                that->destination.on_error(std::move(ex));
+                trace_activity().on_error_return(*that);
+            }
         }
         const this_type* that;
-        bool do_unsubscribe;
+        volatile bool do_unsubscribe;
     };
 
     struct errordetacher
@@ -112,7 +125,7 @@ public:
         const subscriber<T, O>& o,
         typename std::enable_if<
                !std::is_same<O, observer<T>>::value &&
-               std::is_same<Observer, observer<T>>::value, void**>::type select = nullptr)
+               std::is_same<Observer, observer<T>>::value, void**>::type = nullptr)
         : lifetime(o.lifetime)
         , destination(o.destination.as_dynamic())
         , id(o.id)
@@ -221,10 +234,9 @@ template<class T>
 auto make_subscriber()
     -> typename std::enable_if<
         detail::is_on_next_of<T, detail::OnNextEmpty<T>>::value,
-            subscriber<T,   observer<T, static_observer<T, detail::OnNextEmpty<T>>>>>::type {
-    return  subscriber<T,   observer<T, static_observer<T, detail::OnNextEmpty<T>>>>(trace_id::make_next_id_subscriber(), composite_subscription(),
-                            observer<T, static_observer<T, detail::OnNextEmpty<T>>>(
-                                        static_observer<T, detail::OnNextEmpty<T>>(detail::OnNextEmpty<T>())));
+            subscriber<T,   observer<T, detail::stateless_observer_tag, detail::OnNextEmpty<T>>>>::type {
+    return  subscriber<T,   observer<T, detail::stateless_observer_tag, detail::OnNextEmpty<T>>>(trace_id::make_next_id_subscriber(), composite_subscription(),
+                            observer<T, detail::stateless_observer_tag, detail::OnNextEmpty<T>>(detail::OnNextEmpty<T>()));
 }
 
 template<class T, class I>
@@ -236,7 +248,8 @@ auto make_subscriber(
 template<class T, class Observer>
 auto make_subscriber(const Observer& o)
     -> typename std::enable_if<
-        is_observer<Observer>::value,
+    is_observer<Observer>::value &&
+    !is_subscriber<Observer>::value,
             subscriber<T,   Observer>>::type {
     return  subscriber<T,   Observer>(trace_id::make_next_id_subscriber(), composite_subscription(), o);
 }
@@ -254,30 +267,27 @@ template<class T, class OnNext>
 auto make_subscriber(const OnNext& on)
     -> typename std::enable_if<
         detail::is_on_next_of<T, OnNext>::value,
-            subscriber<T,   observer<T, static_observer<T, OnNext>>>>::type {
-    return  subscriber<T,   observer<T, static_observer<T, OnNext>>>(trace_id::make_next_id_subscriber(), composite_subscription(),
-                            observer<T, static_observer<T, OnNext>>(
-                                        static_observer<T, OnNext>(on)));
+            subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext>>>::type {
+    return  subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext>>(trace_id::make_next_id_subscriber(), composite_subscription(),
+                            observer<T, detail::stateless_observer_tag, OnNext>(on));
 }
 template<class T, class OnNext, class OnError>
 auto make_subscriber(const OnNext& on, const OnError& oe)
     -> typename std::enable_if<
         detail::is_on_next_of<T, OnNext>::value &&
         detail::is_on_error<OnError>::value,
-            subscriber<T,   observer<T, static_observer<T, OnNext, OnError>>>>::type {
-    return  subscriber<T,   observer<T, static_observer<T, OnNext, OnError>>>(trace_id::make_next_id_subscriber(), composite_subscription(),
-                            observer<T, static_observer<T, OnNext, OnError>>(
-                                        static_observer<T, OnNext, OnError>(on, oe)));
+            subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError>>>::type {
+    return  subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError>>(trace_id::make_next_id_subscriber(), composite_subscription(),
+                            observer<T, detail::stateless_observer_tag, OnNext, OnError>(on, oe));
 }
 template<class T, class OnNext, class OnCompleted>
 auto make_subscriber(const OnNext& on, const OnCompleted& oc)
     -> typename std::enable_if<
         detail::is_on_next_of<T, OnNext>::value &&
         detail::is_on_completed<OnCompleted>::value,
-            subscriber<T,   observer<T, static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>>>>::type {
-    return  subscriber<T,   observer<T, static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>>>(trace_id::make_next_id_subscriber(), composite_subscription(),
-                            observer<T, static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>>(
-                                        static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>(on, detail::OnErrorEmpty(), oc)));
+            subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, detail::OnErrorEmpty, OnCompleted>>>::type {
+    return  subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, detail::OnErrorEmpty, OnCompleted>>(trace_id::make_next_id_subscriber(), composite_subscription(),
+                            observer<T, detail::stateless_observer_tag, OnNext, detail::OnErrorEmpty, OnCompleted>(on, detail::OnErrorEmpty(), oc));
 }
 template<class T, class OnNext, class OnError, class OnCompleted>
 auto make_subscriber(const OnNext& on, const OnError& oe, const OnCompleted& oc)
@@ -285,10 +295,9 @@ auto make_subscriber(const OnNext& on, const OnError& oe, const OnCompleted& oc)
         detail::is_on_next_of<T, OnNext>::value &&
         detail::is_on_error<OnError>::value &&
         detail::is_on_completed<OnCompleted>::value,
-            subscriber<T,   observer<T, static_observer<T, OnNext, OnError, OnCompleted>>>>::type {
-    return  subscriber<T,   observer<T, static_observer<T, OnNext, OnError, OnCompleted>>>(trace_id::make_next_id_subscriber(), composite_subscription(),
-                            observer<T, static_observer<T, OnNext, OnError, OnCompleted>>(
-                                        static_observer<T, OnNext, OnError, OnCompleted>(on, oe, oc)));
+            subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError, OnCompleted>>>::type {
+    return  subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError, OnCompleted>>(trace_id::make_next_id_subscriber(), composite_subscription(),
+                            observer<T, detail::stateless_observer_tag, OnNext, OnError, OnCompleted>(on, oe, oc));
 }
 
 // explicit lifetime
@@ -296,10 +305,9 @@ auto make_subscriber(const OnNext& on, const OnError& oe, const OnCompleted& oc)
 
 template<class T>
 auto make_subscriber(const composite_subscription& cs)
-    ->      subscriber<T,   observer<T, static_observer<T, detail::OnNextEmpty<T>>>> {
-    return  subscriber<T,   observer<T, static_observer<T, detail::OnNextEmpty<T>>>>(trace_id::make_next_id_subscriber(), cs,
-                            observer<T, static_observer<T, detail::OnNextEmpty<T>>>(
-                                        static_observer<T, detail::OnNextEmpty<T>>(detail::OnNextEmpty<T>())));
+    ->      subscriber<T,   observer<T, detail::stateless_observer_tag, detail::OnNextEmpty<T>>> {
+    return  subscriber<T,   observer<T, detail::stateless_observer_tag, detail::OnNextEmpty<T>>>(trace_id::make_next_id_subscriber(), cs,
+                            observer<T, detail::stateless_observer_tag, detail::OnNextEmpty<T>>(detail::OnNextEmpty<T>()));
 }
 
 template<class T, class I>
@@ -336,30 +344,27 @@ template<class T, class OnNext>
 auto make_subscriber(const composite_subscription& cs, const OnNext& on)
     -> typename std::enable_if<
         detail::is_on_next_of<T, OnNext>::value,
-            subscriber<T,   observer<T, static_observer<T, OnNext>>>>::type {
-    return  subscriber<T,   observer<T, static_observer<T, OnNext>>>(trace_id::make_next_id_subscriber(), cs,
-                            observer<T, static_observer<T, OnNext>>(
-                                        static_observer<T, OnNext>(on)));
+            subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext>>>::type {
+    return  subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext>>(trace_id::make_next_id_subscriber(), cs,
+                            observer<T, detail::stateless_observer_tag, OnNext>(on));
 }
 template<class T, class OnNext, class OnError>
 auto make_subscriber(const composite_subscription& cs, const OnNext& on, const OnError& oe)
     -> typename std::enable_if<
         detail::is_on_next_of<T, OnNext>::value &&
         detail::is_on_error<OnError>::value,
-            subscriber<T,   observer<T, static_observer<T, OnNext, OnError>>>>::type {
-    return  subscriber<T,   observer<T, static_observer<T, OnNext, OnError>>>(trace_id::make_next_id_subscriber(), cs,
-                            observer<T, static_observer<T, OnNext, OnError>>(
-                                        static_observer<T, OnNext, OnError>(on, oe)));
+            subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError>>>::type {
+    return  subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError>>(trace_id::make_next_id_subscriber(), cs,
+                            observer<T, detail::stateless_observer_tag, OnNext, OnError>(on, oe));
 }
 template<class T, class OnNext, class OnCompleted>
 auto make_subscriber(const composite_subscription& cs, const OnNext& on, const OnCompleted& oc)
     -> typename std::enable_if<
         detail::is_on_next_of<T, OnNext>::value &&
         detail::is_on_completed<OnCompleted>::value,
-            subscriber<T,   observer<T, static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>>>>::type {
-    return  subscriber<T,   observer<T, static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>>>(trace_id::make_next_id_subscriber(), cs,
-                            observer<T, static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>>(
-                                        static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>(on, detail::OnErrorEmpty(), oc)));
+            subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, detail::OnErrorEmpty, OnCompleted>>>::type {
+    return  subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, detail::OnErrorEmpty, OnCompleted>>(trace_id::make_next_id_subscriber(), cs,
+                            observer<T, detail::stateless_observer_tag, OnNext, detail::OnErrorEmpty, OnCompleted>(on, detail::OnErrorEmpty(), oc));
 }
 template<class T, class OnNext, class OnError, class OnCompleted>
 auto make_subscriber(const composite_subscription& cs, const OnNext& on, const OnError& oe, const OnCompleted& oc)
@@ -367,10 +372,9 @@ auto make_subscriber(const composite_subscription& cs, const OnNext& on, const O
         detail::is_on_next_of<T, OnNext>::value &&
         detail::is_on_error<OnError>::value &&
         detail::is_on_completed<OnCompleted>::value,
-            subscriber<T,   observer<T, static_observer<T, OnNext, OnError, OnCompleted>>>>::type {
-    return  subscriber<T,   observer<T, static_observer<T, OnNext, OnError, OnCompleted>>>(trace_id::make_next_id_subscriber(), cs,
-                            observer<T, static_observer<T, OnNext, OnError, OnCompleted>>(
-                                        static_observer<T, OnNext, OnError, OnCompleted>(on, oe, oc)));
+            subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError, OnCompleted>>>::type {
+    return  subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError, OnCompleted>>(trace_id::make_next_id_subscriber(), cs,
+                            observer<T, detail::stateless_observer_tag, OnNext, OnError, OnCompleted>(on, oe, oc));
 }
 
 // explicit id
@@ -378,18 +382,16 @@ auto make_subscriber(const composite_subscription& cs, const OnNext& on, const O
 
 template<class T>
 auto make_subscriber(trace_id id)
-    ->      subscriber<T,   observer<T, static_observer<T, detail::OnNextEmpty<T>>>> {
-    return  subscriber<T,   observer<T, static_observer<T, detail::OnNextEmpty<T>>>>(std::move(id), composite_subscription(),
-                            observer<T, static_observer<T, detail::OnNextEmpty<T>>>(
-                                        static_observer<T, detail::OnNextEmpty<T>>(detail::OnNextEmpty<T>())));
+    ->      subscriber<T,   observer<T, detail::stateless_observer_tag, detail::OnNextEmpty<T>>> {
+    return  subscriber<T,   observer<T, detail::stateless_observer_tag, detail::OnNextEmpty<T>>>(std::move(id), composite_subscription(),
+                            observer<T, detail::stateless_observer_tag, detail::OnNextEmpty<T>>(detail::OnNextEmpty<T>()));
 }
 
 template<class T>
 auto make_subscriber(trace_id id, const composite_subscription& cs)
-    ->      subscriber<T,   observer<T, static_observer<T, detail::OnNextEmpty<T>>>> {
-    return  subscriber<T,   observer<T, static_observer<T, detail::OnNextEmpty<T>>>>(std::move(id), cs,
-                            observer<T, static_observer<T, detail::OnNextEmpty<T>>>(
-                                        static_observer<T, detail::OnNextEmpty<T>>(detail::OnNextEmpty<T>())));
+    ->      subscriber<T,   observer<T, detail::stateless_observer_tag, detail::OnNextEmpty<T>>> {
+    return  subscriber<T,   observer<T, detail::stateless_observer_tag, detail::OnNextEmpty<T>>>(std::move(id), cs,
+                            observer<T, detail::stateless_observer_tag, detail::OnNextEmpty<T>>(detail::OnNextEmpty<T>()));
 }
 
 template<class T, class I>
@@ -442,59 +444,53 @@ template<class T, class OnNext>
 auto make_subscriber(trace_id id, const OnNext& on)
     -> typename std::enable_if<
         detail::is_on_next_of<T, OnNext>::value,
-            subscriber<T,   observer<T, static_observer<T, OnNext>>>>::type {
-    return  subscriber<T,   observer<T, static_observer<T, OnNext>>>(std::move(id), composite_subscription(),
-                            observer<T, static_observer<T, OnNext>>(
-                                        static_observer<T, OnNext>(on)));
+            subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext>>>::type {
+    return  subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext>>(std::move(id), composite_subscription(),
+                            observer<T, detail::stateless_observer_tag, OnNext>(on));
 }
 template<class T, class OnNext>
 auto make_subscriber(trace_id id, const composite_subscription& cs, const OnNext& on)
     -> typename std::enable_if<
         detail::is_on_next_of<T, OnNext>::value,
-            subscriber<T,   observer<T, static_observer<T, OnNext>>>>::type {
-    return  subscriber<T,   observer<T, static_observer<T, OnNext>>>(std::move(id), cs,
-                            observer<T, static_observer<T, OnNext>>(
-                                        static_observer<T, OnNext>(on)));
+            subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext>>>::type {
+    return  subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext>>(std::move(id), cs,
+                            observer<T, detail::stateless_observer_tag, OnNext>(on));
 }
 template<class T, class OnNext, class OnError>
 auto make_subscriber(trace_id id, const OnNext& on, const OnError& oe)
     -> typename std::enable_if<
         detail::is_on_next_of<T, OnNext>::value &&
         detail::is_on_error<OnError>::value,
-            subscriber<T,   observer<T, static_observer<T, OnNext, OnError>>>>::type {
-    return  subscriber<T,   observer<T, static_observer<T, OnNext, OnError>>>(std::move(id), composite_subscription(),
-                            observer<T, static_observer<T, OnNext, OnError>>(
-                                        static_observer<T, OnNext, OnError>(on, oe)));
+            subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError>>>::type {
+    return  subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError>>(std::move(id), composite_subscription(),
+                            observer<T, detail::stateless_observer_tag, OnNext, OnError>(on, oe));
 }
 template<class T, class OnNext, class OnError>
 auto make_subscriber(trace_id id, const composite_subscription& cs, const OnNext& on, const OnError& oe)
     -> typename std::enable_if<
         detail::is_on_next_of<T, OnNext>::value &&
         detail::is_on_error<OnError>::value,
-            subscriber<T,   observer<T, static_observer<T, OnNext, OnError>>>>::type {
-    return  subscriber<T,   observer<T, static_observer<T, OnNext, OnError>>>(std::move(id), cs,
-                            observer<T, static_observer<T, OnNext, OnError>>(
-                                        static_observer<T, OnNext, OnError>(on, oe)));
+            subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError>>>::type {
+    return  subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError>>(std::move(id), cs,
+                            observer<T, detail::stateless_observer_tag, OnNext, OnError>(on, oe));
 }
 template<class T, class OnNext, class OnCompleted>
 auto make_subscriber(trace_id id, const OnNext& on, const OnCompleted& oc)
     -> typename std::enable_if<
         detail::is_on_next_of<T, OnNext>::value &&
         detail::is_on_completed<OnCompleted>::value,
-            subscriber<T,   observer<T, static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>>>>::type {
-    return  subscriber<T,   observer<T, static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>>>(std::move(id), composite_subscription(),
-                            observer<T, static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>>(
-                                        static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>(on, detail::OnErrorEmpty(), oc)));
+            subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, detail::OnErrorEmpty, OnCompleted>>>::type {
+    return  subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, detail::OnErrorEmpty, OnCompleted>>(std::move(id), composite_subscription(),
+                            observer<T, detail::stateless_observer_tag, OnNext, detail::OnErrorEmpty, OnCompleted>(on, detail::OnErrorEmpty(), oc));
 }
 template<class T, class OnNext, class OnCompleted>
 auto make_subscriber(trace_id id, const composite_subscription& cs, const OnNext& on, const OnCompleted& oc)
     -> typename std::enable_if<
         detail::is_on_next_of<T, OnNext>::value &&
         detail::is_on_completed<OnCompleted>::value,
-            subscriber<T,   observer<T, static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>>>>::type {
-    return  subscriber<T,   observer<T, static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>>>(std::move(id), cs,
-                            observer<T, static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>>(
-                                        static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>(on, detail::OnErrorEmpty(), oc)));
+            subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, detail::OnErrorEmpty, OnCompleted>>>::type {
+    return  subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, detail::OnErrorEmpty, OnCompleted>>(std::move(id), cs,
+                            observer<T, detail::stateless_observer_tag, OnNext, detail::OnErrorEmpty, OnCompleted>(on, detail::OnErrorEmpty(), oc));
 }
 template<class T, class OnNext, class OnError, class OnCompleted>
 auto make_subscriber(trace_id id, const OnNext& on, const OnError& oe, const OnCompleted& oc)
@@ -502,10 +498,9 @@ auto make_subscriber(trace_id id, const OnNext& on, const OnError& oe, const OnC
         detail::is_on_next_of<T, OnNext>::value &&
         detail::is_on_error<OnError>::value &&
         detail::is_on_completed<OnCompleted>::value,
-            subscriber<T,   observer<T, static_observer<T, OnNext, OnError, OnCompleted>>>>::type {
-    return  subscriber<T,   observer<T, static_observer<T, OnNext, OnError, OnCompleted>>>(std::move(id), composite_subscription(),
-                            observer<T, static_observer<T, OnNext, OnError, OnCompleted>>(
-                                        static_observer<T, OnNext, OnError, OnCompleted>(on, oe, oc)));
+            subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError, OnCompleted>>>::type {
+    return  subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError, OnCompleted>>(std::move(id), composite_subscription(),
+                            observer<T, detail::stateless_observer_tag, OnNext, OnError, OnCompleted>(on, oe, oc));
 }
 template<class T, class OnNext, class OnError, class OnCompleted>
 auto make_subscriber(trace_id id, const composite_subscription& cs, const OnNext& on, const OnError& oe, const OnCompleted& oc)
@@ -513,10 +508,9 @@ auto make_subscriber(trace_id id, const composite_subscription& cs, const OnNext
         detail::is_on_next_of<T, OnNext>::value &&
         detail::is_on_error<OnError>::value &&
         detail::is_on_completed<OnCompleted>::value,
-            subscriber<T,   observer<T, static_observer<T, OnNext, OnError, OnCompleted>>>>::type {
-    return  subscriber<T,   observer<T, static_observer<T, OnNext, OnError, OnCompleted>>>(std::move(id), cs,
-                            observer<T, static_observer<T, OnNext, OnError, OnCompleted>>(
-                                        static_observer<T, OnNext, OnError, OnCompleted>(on, oe, oc)));
+            subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError, OnCompleted>>>::type {
+    return  subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError, OnCompleted>>(std::move(id), cs,
+                            observer<T, detail::stateless_observer_tag, OnNext, OnError, OnCompleted>(on, oe, oc));
 }
 
 // chain defaults from subscriber
@@ -585,10 +579,9 @@ template<class T, class OtherT, class OtherObserver, class OnNext>
 auto make_subscriber(const subscriber<OtherT, OtherObserver>& scbr, const OnNext& on)
     -> typename std::enable_if<
         detail::is_on_next_of<T, OnNext>::value,
-             subscriber<T,   observer<T, static_observer<T, OnNext>>>>::type {
-    auto r = subscriber<T,   observer<T, static_observer<T, OnNext>>>(trace_id::make_next_id_subscriber(), scbr.get_subscription(),
-                            observer<T, static_observer<T, OnNext>>(
-                                        static_observer<T, OnNext>(on)));
+             subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext>>>::type {
+    auto r = subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext>>(trace_id::make_next_id_subscriber(), scbr.get_subscription(),
+                             observer<T, detail::stateless_observer_tag, OnNext>(on));
     trace_activity().connect(r, scbr);
     return r;
 }
@@ -596,10 +589,9 @@ template<class T, class OtherT, class OtherObserver, class OnNext>
 auto make_subscriber(const subscriber<OtherT, OtherObserver>& scbr, trace_id id, const OnNext& on)
     -> typename std::enable_if<
         detail::is_on_next_of<T, OnNext>::value,
-             subscriber<T,   observer<T, static_observer<T, OnNext>>>>::type {
-    auto r = subscriber<T,   observer<T, static_observer<T, OnNext>>>(std::move(id), scbr.get_subscription(),
-                            observer<T, static_observer<T, OnNext>>(
-                                        static_observer<T, OnNext>(on)));
+             subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext>>>::type {
+    auto r = subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext>>(std::move(id), scbr.get_subscription(),
+                             observer<T, detail::stateless_observer_tag, OnNext>(on));
     trace_activity().connect(r, scbr);
     return r;
 }
@@ -608,10 +600,9 @@ auto make_subscriber(const subscriber<OtherT, OtherObserver>& scbr, const OnNext
     -> typename std::enable_if<
         detail::is_on_next_of<T, OnNext>::value &&
         detail::is_on_error<OnError>::value,
-             subscriber<T,   observer<T, static_observer<T, OnNext, OnError>>>>::type {
-    auto r = subscriber<T,   observer<T, static_observer<T, OnNext, OnError>>>(trace_id::make_next_id_subscriber(), scbr.get_subscription(),
-                            observer<T, static_observer<T, OnNext, OnError>>(
-                                        static_observer<T, OnNext, OnError>(on, oe)));
+             subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError>>>::type {
+    auto r = subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError>>(trace_id::make_next_id_subscriber(), scbr.get_subscription(),
+                             observer<T, detail::stateless_observer_tag, OnNext, OnError>(on, oe));
     trace_activity().connect(r, scbr);
     return r;
 }
@@ -620,10 +611,9 @@ auto make_subscriber(const subscriber<OtherT, OtherObserver>& scbr, trace_id id,
     -> typename std::enable_if<
         detail::is_on_next_of<T, OnNext>::value &&
         detail::is_on_error<OnError>::value,
-             subscriber<T,   observer<T, static_observer<T, OnNext, OnError>>>>::type {
-    auto r = subscriber<T,   observer<T, static_observer<T, OnNext, OnError>>>(std::move(id), scbr.get_subscription(),
-                            observer<T, static_observer<T, OnNext, OnError>>(
-                                        static_observer<T, OnNext, OnError>(on, oe)));
+             subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError>>>::type {
+    auto r = subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError>>(std::move(id), scbr.get_subscription(),
+                             observer<T, detail::stateless_observer_tag, OnNext, OnError>(on, oe));
     trace_activity().connect(r, scbr);
     return r;
 }
@@ -632,10 +622,9 @@ auto make_subscriber(const subscriber<OtherT, OtherObserver>& scbr, const OnNext
     -> typename std::enable_if<
         detail::is_on_next_of<T, OnNext>::value &&
         detail::is_on_completed<OnCompleted>::value,
-             subscriber<T,   observer<T, static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>>>>::type {
-    auto r = subscriber<T,   observer<T, static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>>>(trace_id::make_next_id_subscriber(), scbr.get_subscription(),
-                            observer<T, static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>>(
-                                        static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>(on, detail::OnErrorEmpty(), oc)));
+             subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, detail::OnErrorEmpty, OnCompleted>>>::type {
+    auto r = subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, detail::OnErrorEmpty, OnCompleted>>(trace_id::make_next_id_subscriber(), scbr.get_subscription(),
+                             observer<T, detail::stateless_observer_tag, OnNext, detail::OnErrorEmpty, OnCompleted>(on, detail::OnErrorEmpty(), oc));
     trace_activity().connect(r, scbr);
     return r;
 }
@@ -644,10 +633,9 @@ auto make_subscriber(const subscriber<OtherT, OtherObserver>& scbr, trace_id id,
     -> typename std::enable_if<
         detail::is_on_next_of<T, OnNext>::value &&
         detail::is_on_completed<OnCompleted>::value,
-             subscriber<T,   observer<T, static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>>>>::type {
-    auto r = subscriber<T,   observer<T, static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>>>(std::move(id), scbr.get_subscription(),
-                            observer<T, static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>>(
-                                        static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>(on, detail::OnErrorEmpty(), oc)));
+             subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, detail::OnErrorEmpty, OnCompleted>>>::type {
+    auto r = subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, detail::OnErrorEmpty, OnCompleted>>(std::move(id), scbr.get_subscription(),
+                             observer<T, detail::stateless_observer_tag, OnNext, detail::OnErrorEmpty, OnCompleted>(on, detail::OnErrorEmpty(), oc));
     trace_activity().connect(r, scbr);
     return r;
 }
@@ -657,10 +645,9 @@ auto make_subscriber(const subscriber<OtherT, OtherObserver>& scbr, const OnNext
         detail::is_on_next_of<T, OnNext>::value &&
         detail::is_on_error<OnError>::value &&
         detail::is_on_completed<OnCompleted>::value,
-             subscriber<T,   observer<T, static_observer<T, OnNext, OnError, OnCompleted>>>>::type {
-    auto r = subscriber<T,   observer<T, static_observer<T, OnNext, OnError, OnCompleted>>>(trace_id::make_next_id_subscriber(), scbr.get_subscription(),
-                            observer<T, static_observer<T, OnNext, OnError, OnCompleted>>(
-                                        static_observer<T, OnNext, OnError, OnCompleted>(on, oe, oc)));
+             subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError, OnCompleted>>>::type {
+    auto r = subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError, OnCompleted>>(trace_id::make_next_id_subscriber(), scbr.get_subscription(),
+                             observer<T, detail::stateless_observer_tag, OnNext, OnError, OnCompleted>(on, oe, oc));
     trace_activity().connect(r, scbr);
     return r;
 }
@@ -670,22 +657,21 @@ auto make_subscriber(const subscriber<OtherT, OtherObserver>& scbr, trace_id id,
         detail::is_on_next_of<T, OnNext>::value &&
         detail::is_on_error<OnError>::value &&
         detail::is_on_completed<OnCompleted>::value,
-             subscriber<T,   observer<T, static_observer<T, OnNext, OnError, OnCompleted>>>>::type {
-    auto r = subscriber<T,   observer<T, static_observer<T, OnNext, OnError, OnCompleted>>>(std::move(id), scbr.get_subscription(),
-                            observer<T, static_observer<T, OnNext, OnError, OnCompleted>>(
-                                        static_observer<T, OnNext, OnError, OnCompleted>(on, oe, oc)));
+             subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError, OnCompleted>>>::type {
+    auto r = subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError, OnCompleted>>(std::move(id), scbr.get_subscription(),
+                             observer<T, detail::stateless_observer_tag, OnNext, OnError, OnCompleted>(on, oe, oc));
     trace_activity().connect(r, scbr);
     return r;
 }
 
 template<class T, class OtherT, class OtherObserver, class I>
-auto make_subscriber(const subscriber<OtherT, OtherObserver>& scbr, const composite_subscription& cs,
+auto make_subscriber(const subscriber<OtherT, OtherObserver>& , const composite_subscription& cs,
     const                   observer<T, I>& o)
     ->      subscriber<T,   observer<T, I>> {
     return  subscriber<T,   observer<T, I>>(trace_id::make_next_id_subscriber(), cs, o);
 }
 template<class T, class OtherT, class OtherObserver, class I>
-auto make_subscriber(const subscriber<OtherT, OtherObserver>& scbr, trace_id id, const composite_subscription& cs,
+auto make_subscriber(const subscriber<OtherT, OtherObserver>&, trace_id id, const composite_subscription& cs,
     const                   observer<T, I>& o)
     ->      subscriber<T,   observer<T, I>> {
     return  subscriber<T,   observer<T, I>>(std::move(id), cs, o);
@@ -736,10 +722,9 @@ template<class T, class OtherT, class OtherObserver, class OnNext>
 auto make_subscriber(const subscriber<OtherT, OtherObserver>& scbr, const composite_subscription& cs, const OnNext& on)
     -> typename std::enable_if<
         detail::is_on_next_of<T, OnNext>::value,
-             subscriber<T,   observer<T, static_observer<T, OnNext>>>>::type {
-    auto r = subscriber<T,   observer<T, static_observer<T, OnNext>>>(trace_id::make_next_id_subscriber(), cs,
-                            observer<T, static_observer<T, OnNext>>(
-                                        static_observer<T, OnNext>(on)));
+             subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext>>>::type {
+    auto r = subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext>>(trace_id::make_next_id_subscriber(), cs,
+                             observer<T, detail::stateless_observer_tag, OnNext>(on));
     trace_activity().connect(r, scbr);
     return r;
 }
@@ -747,10 +732,9 @@ template<class T, class OtherT, class OtherObserver, class OnNext>
 auto make_subscriber(const subscriber<OtherT, OtherObserver>& scbr, trace_id id, const composite_subscription& cs, const OnNext& on)
     -> typename std::enable_if<
         detail::is_on_next_of<T, OnNext>::value,
-             subscriber<T,   observer<T, static_observer<T, OnNext>>>>::type {
-    auto r = subscriber<T,   observer<T, static_observer<T, OnNext>>>(std::move(id), cs,
-                            observer<T, static_observer<T, OnNext>>(
-                                        static_observer<T, OnNext>(on)));
+             subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext>>>::type {
+    auto r = subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext>>(std::move(id), cs,
+                             observer<T, detail::stateless_observer_tag, OnNext>(on));
     trace_activity().connect(r, scbr);
     return r;
 }
@@ -759,10 +743,9 @@ auto make_subscriber(const subscriber<OtherT, OtherObserver>& scbr, const compos
     -> typename std::enable_if<
         detail::is_on_next_of<T, OnNext>::value &&
         detail::is_on_error<OnError>::value,
-             subscriber<T,   observer<T, static_observer<T, OnNext, OnError>>>>::type {
-    auto r = subscriber<T,   observer<T, static_observer<T, OnNext, OnError>>>(trace_id::make_next_id_subscriber(), cs,
-                            observer<T, static_observer<T, OnNext, OnError>>(
-                                        static_observer<T, OnNext, OnError>(on, oe)));
+             subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError>>>::type {
+    auto r = subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError>>(trace_id::make_next_id_subscriber(), cs,
+                             observer<T, detail::stateless_observer_tag, OnNext, OnError>(on, oe));
     trace_activity().connect(r, scbr);
     return r;
 }
@@ -771,10 +754,9 @@ auto make_subscriber(const subscriber<OtherT, OtherObserver>& scbr, trace_id id,
     -> typename std::enable_if<
         detail::is_on_next_of<T, OnNext>::value &&
         detail::is_on_error<OnError>::value,
-             subscriber<T,   observer<T, static_observer<T, OnNext, OnError>>>>::type {
-    auto r = subscriber<T,   observer<T, static_observer<T, OnNext, OnError>>>(std::move(id), cs,
-                            observer<T, static_observer<T, OnNext, OnError>>(
-                                        static_observer<T, OnNext, OnError>(on, oe)));
+             subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError>>>::type {
+    auto r = subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError>>(std::move(id), cs,
+                             observer<T, detail::stateless_observer_tag, OnNext, OnError>(on, oe));
     trace_activity().connect(r, scbr);
     return r;
 }
@@ -783,10 +765,9 @@ auto make_subscriber(const subscriber<OtherT, OtherObserver>& scbr, const compos
     -> typename std::enable_if<
         detail::is_on_next_of<T, OnNext>::value &&
         detail::is_on_completed<OnCompleted>::value,
-             subscriber<T,   observer<T, static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>>>>::type {
-    auto r = subscriber<T,   observer<T, static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>>>(trace_id::make_next_id_subscriber(), cs,
-                            observer<T, static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>>(
-                                        static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>(on, detail::OnErrorEmpty(), oc)));
+             subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, detail::OnErrorEmpty, OnCompleted>>>::type {
+    auto r = subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, detail::OnErrorEmpty, OnCompleted>>(trace_id::make_next_id_subscriber(), cs,
+                             observer<T, detail::stateless_observer_tag, OnNext, detail::OnErrorEmpty, OnCompleted>(on, detail::OnErrorEmpty(), oc));
     trace_activity().connect(r, scbr);
     return r;
 }
@@ -795,10 +776,9 @@ auto make_subscriber(const subscriber<OtherT, OtherObserver>& scbr, trace_id id,
     -> typename std::enable_if<
         detail::is_on_next_of<T, OnNext>::value &&
         detail::is_on_completed<OnCompleted>::value,
-             subscriber<T,   observer<T, static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>>>>::type {
-    auto r = subscriber<T,   observer<T, static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>>>(std::move(id), cs,
-                            observer<T, static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>>(
-                                        static_observer<T, OnNext, detail::OnErrorEmpty, OnCompleted>(on, detail::OnErrorEmpty(), oc)));
+             subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, detail::OnErrorEmpty, OnCompleted>>>::type {
+    auto r = subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, detail::OnErrorEmpty, OnCompleted>>(std::move(id), cs,
+                             observer<T, detail::stateless_observer_tag, OnNext, detail::OnErrorEmpty, OnCompleted>(on, detail::OnErrorEmpty(), oc));
     trace_activity().connect(r, scbr);
     return r;
 }
@@ -808,10 +788,9 @@ auto make_subscriber(const subscriber<OtherT, OtherObserver>& scbr, const compos
         detail::is_on_next_of<T, OnNext>::value &&
         detail::is_on_error<OnError>::value &&
         detail::is_on_completed<OnCompleted>::value,
-             subscriber<T,   observer<T, static_observer<T, OnNext, OnError, OnCompleted>>>>::type {
-    auto r = subscriber<T,   observer<T, static_observer<T, OnNext, OnError, OnCompleted>>>(trace_id::make_next_id_subscriber(), cs,
-                            observer<T, static_observer<T, OnNext, OnError, OnCompleted>>(
-                                        static_observer<T, OnNext, OnError, OnCompleted>(on, oe, oc)));
+             subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError, OnCompleted>>>::type {
+    auto r = subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError, OnCompleted>>(trace_id::make_next_id_subscriber(), cs,
+                             observer<T, detail::stateless_observer_tag, OnNext, OnError, OnCompleted>(on, oe, oc));
     trace_activity().connect(r, scbr);
     return r;
 }
@@ -821,10 +800,9 @@ auto make_subscriber(const subscriber<OtherT, OtherObserver>& scbr, trace_id id,
         detail::is_on_next_of<T, OnNext>::value &&
         detail::is_on_error<OnError>::value &&
         detail::is_on_completed<OnCompleted>::value,
-             subscriber<T,   observer<T, static_observer<T, OnNext, OnError, OnCompleted>>>>::type {
-    auto r = subscriber<T,   observer<T, static_observer<T, OnNext, OnError, OnCompleted>>>(std::move(id), cs,
-                            observer<T, static_observer<T, OnNext, OnError, OnCompleted>>(
-                                        static_observer<T, OnNext, OnError, OnCompleted>(on, oe, oc)));
+             subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError, OnCompleted>>>::type {
+    auto r = subscriber<T,   observer<T, detail::stateless_observer_tag, OnNext, OnError, OnCompleted>>(std::move(id), cs,
+                             observer<T, detail::stateless_observer_tag, OnNext, OnError, OnCompleted>(on, oe, oc));
     trace_activity().connect(r, scbr);
     return r;
 }

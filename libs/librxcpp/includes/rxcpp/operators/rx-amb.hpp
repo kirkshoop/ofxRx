@@ -2,8 +2,8 @@
 
 #pragma once
 
-#if !defined(RXCPP_OPERATORS_RX_MERGE_HPP)
-#define RXCPP_OPERATORS_RX_MERGE_HPP
+#if !defined(RXCPP_OPERATORS_RX_AMB_HPP)
+#define RXCPP_OPERATORS_RX_AMB_HPP
 
 #include "../rx-includes.hpp"
 
@@ -14,13 +14,13 @@ namespace operators {
 namespace detail {
 
 template<class T, class Observable, class Coordination>
-struct merge
+struct amb
     : public operator_base<rxu::value_type_t<rxu::decay_t<T>>>
 {
-    //static_assert(is_observable<Observable>::value, "merge requires an observable");
-    //static_assert(is_observable<T>::value, "merge requires an observable that contains observables");
+    //static_assert(is_observable<Observable>::value, "amb requires an observable");
+    //static_assert(is_observable<T>::value, "amb requires an observable that contains observables");
 
-    typedef merge<T, Observable, Coordination> this_type;
+    typedef amb<T, Observable, Coordination> this_type;
 
     typedef rxu::decay_t<T> source_value_type;
     typedef rxu::decay_t<Observable> source_type;
@@ -43,7 +43,7 @@ struct merge
     };
     values initial;
 
-    merge(const source_type& o, coordination_type sf)
+    amb(const source_type& o, coordination_type sf)
         : initial(o.source_operator, std::move(sf))
     {
     }
@@ -54,30 +54,31 @@ struct merge
 
         typedef Subscriber output_type;
 
-        struct merge_state_type
-            : public std::enable_shared_from_this<merge_state_type>
+        struct amb_state_type
+            : public std::enable_shared_from_this<amb_state_type>
             , public values
         {
-            merge_state_type(values i, coordinator_type coor, output_type oarg)
+            amb_state_type(values i, coordinator_type coor, output_type oarg)
                 : values(i)
                 , source(i.source_operator)
-                , pendingCompletions(0)
                 , coordinator(std::move(coor))
                 , out(std::move(oarg))
+                , pendingObservables(0)
+                , firstEmitted(false)
             {
             }
             observable<source_value_type, source_operator_type> source;
-            // on_completed on the output must wait until all the
-            // subscriptions have received on_completed
-            int pendingCompletions;
             coordinator_type coordinator;
             output_type out;
+            int pendingObservables;
+            bool firstEmitted;
+            std::vector<composite_subscription> innerSubscriptions;
         };
 
         auto coordinator = initial.coordination.create_coordinator(scbr.get_subscription());
 
         // take a copy of the values for each subscription
-        auto state = std::make_shared<merge_state_type>(initial, std::move(coordinator), std::move(scbr));
+        auto state = std::make_shared<amb_state_type>(initial, std::move(coordinator), std::move(scbr));
 
         composite_subscription outercs;
 
@@ -92,7 +93,6 @@ struct merge
             return;
         }
 
-        ++state->pendingCompletions;
         // this subscribe does not share the observer subscription
         // so that when it is unsubscribed the observer can be called
         // until the inner subscriptions have finished
@@ -102,7 +102,12 @@ struct merge
         // on_next
             [state](source_value_type st) {
 
+                if (state->firstEmitted)
+                    return;
+
                 composite_subscription innercs;
+
+                state->innerSubscriptions.push_back(innercs);
 
                 // when the out observer is unsubscribed all the
                 // inner subscriptions are unsubscribed as well
@@ -114,15 +119,24 @@ struct merge
 
                 auto selectedSource = state->coordinator.in(st);
 
-                ++state->pendingCompletions;
+                auto current_id = state->pendingObservables++;
+
                 // this subscribe does not share the source subscription
                 // so that when it is unsubscribed the source will continue
                 auto sinkInner = make_subscriber<value_type>(
                     state->out,
                     innercs,
                 // on_next
-                    [state, st](value_type ct) {
+                    [state, st, current_id](value_type ct) {
                         state->out.on_next(std::move(ct));
+                        if (!state->firstEmitted) {
+                            state->firstEmitted = true;
+                            auto do_unsubscribe = [](composite_subscription cs) {
+                                cs.unsubscribe();
+                            };
+                            std::for_each(state->innerSubscriptions.begin(), state->innerSubscriptions.begin() + current_id, do_unsubscribe);
+                            std::for_each(state->innerSubscriptions.begin() + current_id + 1, state->innerSubscriptions.end(), do_unsubscribe);
+                        }
                     },
                 // on_error
                     [state](std::exception_ptr e) {
@@ -130,9 +144,7 @@ struct merge
                     },
                 //on_completed
                     [state](){
-                        if (--state->pendingCompletions == 0) {
-                            state->out.on_completed();
-                        }
+                        state->out.on_completed();
                     }
                 );
 
@@ -145,7 +157,7 @@ struct merge
             },
         // on_completed
             [state]() {
-                if (--state->pendingCompletions == 0) {
+                if (state->pendingObservables == 0) {
                     state->out.on_completed();
                 }
             }
@@ -161,31 +173,31 @@ struct merge
 };
 
 template<class Coordination>
-class merge_factory
+class amb_factory
 {
     typedef rxu::decay_t<Coordination> coordination_type;
 
     coordination_type coordination;
 public:
-    merge_factory(coordination_type sf)
+    amb_factory(coordination_type sf)
         : coordination(std::move(sf))
     {
     }
 
     template<class Observable>
     auto operator()(Observable source)
-        ->      observable<rxu::value_type_t<merge<rxu::value_type_t<Observable>, Observable, Coordination>>,   merge<rxu::value_type_t<Observable>, Observable, Coordination>> {
-        return  observable<rxu::value_type_t<merge<rxu::value_type_t<Observable>, Observable, Coordination>>,   merge<rxu::value_type_t<Observable>, Observable, Coordination>>(
-                                                                                                                merge<rxu::value_type_t<Observable>, Observable, Coordination>(std::move(source), coordination));
+        ->      observable<rxu::value_type_t<amb<rxu::value_type_t<Observable>, Observable, Coordination>>,   amb<rxu::value_type_t<Observable>, Observable, Coordination>> {
+        return  observable<rxu::value_type_t<amb<rxu::value_type_t<Observable>, Observable, Coordination>>,   amb<rxu::value_type_t<Observable>, Observable, Coordination>>(
+                                                                                                              amb<rxu::value_type_t<Observable>, Observable, Coordination>(std::move(source), coordination));
     }
 };
 
 }
 
 template<class Coordination>
-auto merge(Coordination&& sf)
-    ->      detail::merge_factory<Coordination> {
-    return  detail::merge_factory<Coordination>(std::forward<Coordination>(sf));
+auto amb(Coordination&& sf)
+    ->      detail::amb_factory<Coordination> {
+    return  detail::amb_factory<Coordination>(std::forward<Coordination>(sf));
 }
 
 }

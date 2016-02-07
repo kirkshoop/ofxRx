@@ -18,6 +18,7 @@ struct test_subject_base
     typedef rxn::recorded<typename rxn::notification<T>::type> recorded_type;
     typedef std::shared_ptr<test_subject_base<T>> type;
 
+    virtual ~test_subject_base() {}
     virtual void on_subscribe(subscriber<T>) const =0;
     virtual std::vector<recorded_type> messages() const =0;
     virtual std::vector<rxn::subscription> subscriptions() const =0;
@@ -72,6 +73,12 @@ public:
 
 //struct tag_test_observable : public tag_observable {};
 
+/*!
+    \brief a source of values that records the time of each subscription/unsubscription and all the values and the time they were emitted.
+
+    \ingroup group-observable
+
+*/
 template<class T>
 class testable_observable
     : public observable<T, typename detail::test_source<T>>

@@ -16,8 +16,8 @@ namespace detail {
 template<class T, class Observable, class Coordination>
 struct subscribe_on : public operator_base<T>
 {
-    typedef typename std::decay<Observable>::type source_type;
-    typedef typename std::decay<Coordination>::type coordination_type;
+    typedef rxu::decay_t<Observable> source_type;
+    typedef rxu::decay_t<Coordination> coordination_type;
     typedef typename coordination_type::coordinator_type coordinator_type;
     struct subscribe_on_values
     {
@@ -31,6 +31,8 @@ struct subscribe_on : public operator_base<T>
         }
         source_type source;
         coordination_type coordination;
+    private:
+        subscribe_on_values& operator=(subscribe_on_values o) RXCPP_DELETE;
     };
     const subscribe_on_values initial;
 
@@ -50,40 +52,49 @@ struct subscribe_on : public operator_base<T>
             : public std::enable_shared_from_this<subscribe_on_state_type>
             , public subscribe_on_values
         {
-            subscribe_on_state_type(const subscribe_on_values& i, coordinator_type coor, const output_type& oarg)
+            subscribe_on_state_type(const subscribe_on_values& i, const output_type& oarg)
                 : subscribe_on_values(i)
-                , coordinator(std::move(coor))
                 , out(oarg)
             {
             }
             composite_subscription source_lifetime;
-            coordinator_type coordinator;
             output_type out;
+        private:
+            subscribe_on_state_type& operator=(subscribe_on_state_type o) RXCPP_DELETE;
         };
 
-        auto coordinator = initial.coordination.create_coordinator(s.get_subscription());
+        composite_subscription coordinator_lifetime;
+
+        auto coordinator = initial.coordination.create_coordinator(coordinator_lifetime);
 
         auto controller = coordinator.get_worker();
 
         // take a copy of the values for each subscription
-        auto state = std::shared_ptr<subscribe_on_state_type>(new subscribe_on_state_type(initial, std::move(coordinator), std::move(s)));
+        auto state = std::make_shared<subscribe_on_state_type>(initial, std::move(s));
+
+        auto sl = state->source_lifetime;
+        auto ol = state->out.get_subscription();
 
         auto disposer = [=](const rxsc::schedulable&){
-            state->source_lifetime.unsubscribe();
-            state->out.unsubscribe();
+            sl.unsubscribe();
+            ol.unsubscribe();
+            coordinator_lifetime.unsubscribe();
         };
         auto selectedDisposer = on_exception(
-            [&](){return state->coordinator.act(disposer);},
+            [&](){return coordinator.act(disposer);},
             state->out);
         if (selectedDisposer.empty()) {
             return;
         }
-
-        state->out.add([=](){
-            controller.schedule(selectedDisposer.get());
-        });
+        
         state->source_lifetime.add([=](){
             controller.schedule(selectedDisposer.get());
+        });
+
+        state->out.add([=](){
+            sl.unsubscribe();
+            ol.unsubscribe();
+            coordinator_lifetime.unsubscribe();
         });
 
         auto producer = [=](const rxsc::schedulable&){
@@ -91,7 +102,7 @@ struct subscribe_on : public operator_base<T>
         };
 
         auto selectedProducer = on_exception(
-            [&](){return state->coordinator.act(producer);},
+            [&](){return coordinator.act(producer);},
             state->out);
         if (selectedProducer.empty()) {
             return;
@@ -99,12 +110,14 @@ struct subscribe_on : public operator_base<T>
 
         controller.schedule(selectedProducer.get());
     }
+private:
+    subscribe_on& operator=(subscribe_on o) RXCPP_DELETE;
 };
 
 template<class Coordination>
 class subscribe_on_factory
 {
-    typedef typename std::decay<Coordination>::type coordination_type;
+    typedef rxu::decay_t<Coordination> coordination_type;
 
     coordination_type coordination;
 public:
@@ -114,9 +127,9 @@ public:
     }
     template<class Observable>
     auto operator()(Observable&& source)
-        ->      observable<typename std::decay<Observable>::type::value_type,   subscribe_on<typename std::decay<Observable>::type::value_type, Observable, Coordination>> {
-        return  observable<typename std::decay<Observable>::type::value_type,   subscribe_on<typename std::decay<Observable>::type::value_type, Observable, Coordination>>(
-                                                                                subscribe_on<typename std::decay<Observable>::type::value_type, Observable, Coordination>(std::forward<Observable>(source), coordination));
+        ->      observable<rxu::value_type_t<rxu::decay_t<Observable>>,   subscribe_on<rxu::value_type_t<rxu::decay_t<Observable>>, Observable, Coordination>> {
+        return  observable<rxu::value_type_t<rxu::decay_t<Observable>>,   subscribe_on<rxu::value_type_t<rxu::decay_t<Observable>>, Observable, Coordination>>(
+                                                                          subscribe_on<rxu::value_type_t<rxu::decay_t<Observable>>, Observable, Coordination>(std::forward<Observable>(source), coordination));
     }
 };
 

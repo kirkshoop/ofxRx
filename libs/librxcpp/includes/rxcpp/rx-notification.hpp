@@ -93,6 +93,17 @@ inline std::ostream& operator<< (std::ostream& os, const std::vector<T>& v) {
     return os;
 }
 
+template<class T>
+auto equals(const T& lhs, const T& rhs, int)
+    -> decltype(bool(lhs == rhs)) {
+    return lhs == rhs;
+}
+
+template<class T>
+bool equals(const T&, const T&, ...) {
+    throw std::runtime_error("value does not support equality tests");
+    return false;
+}
 
 }
 
@@ -108,6 +119,9 @@ private:
     struct on_next_notification : public base {
         on_next_notification(T value) : value(std::move(value)) {
         }
+        on_next_notification(const on_next_notification& o) : value(o.value) {}
+        on_next_notification(const on_next_notification&& o) : value(std::move(o.value)) {}
+        on_next_notification& operator=(on_next_notification o) { value = std::move(o.value); return *this; }
         virtual void out(std::ostream& os) const {
             os << "on_next( ";
             detail::to_stream(os, value, 0, 0);
@@ -116,7 +130,7 @@ private:
         virtual bool equals(const typename base::type& other) const {
             bool result = false;
             other->accept(make_subscriber<T>(make_observer_dynamic<T>([this, &result](T v) {
-                    result = this->value == v;
+                    result = detail::equals(this->value, v, 0);
                 })));
             return result;
         }
@@ -129,6 +143,9 @@ private:
     struct on_error_notification : public base {
         on_error_notification(std::exception_ptr ep) : ep(ep) {
         }
+        on_error_notification(const on_error_notification& o) : ep(o.ep) {}
+        on_error_notification(const on_error_notification&& o) : ep(std::move(o.ep)) {}
+        on_error_notification& operator=(on_error_notification o) { ep = std::move(o.ep); return *this; }
         virtual void out(std::ostream& os) const {
             os << "on_error(";
             try {
@@ -194,47 +211,24 @@ private:
         return std::make_shared<on_error_notification>(ep);
     }
 
-    struct on_next_factory
-    {
-        type operator()(T value) const {
-            return std::make_shared<on_next_notification>(std::move(value));
-        }
-    };
-
-    struct on_completed_factory
-    {
-        type operator()() const {
-            return std::make_shared<on_completed_notification>();
-        }
-    };
-
-    struct on_error_factory
-    {
-        template<typename Exception>
-        type operator()(Exception&& e) const {
-            return make_on_error(typename std::conditional<
-                std::is_same<typename std::decay<Exception>::type, std::exception_ptr>::value,
-                    exception_ptr_tag, exception_tag>::type(),
-                std::forward<Exception>(e));
-        }
-    };
 public:
-    const static on_next_factory on_next;
-    const static on_completed_factory on_completed;
-    const static on_error_factory on_error;
+    template<typename U>
+    static type on_next(U value) {
+        return std::make_shared<on_next_notification>(std::move(value));
+    }
+
+    static type on_completed() {
+        return std::make_shared<on_completed_notification>();
+    }
+
+    template<typename Exception>
+    static type on_error(Exception&& e) {
+        return make_on_error(typename std::conditional<
+            std::is_same<rxu::decay_t<Exception>, std::exception_ptr>::value,
+                exception_ptr_tag, exception_tag>::type(),
+            std::forward<Exception>(e));
+    }
 };
-
-template<class T>
-//static
-RXCPP_SELECT_ANY const typename notification<T>::on_next_factory notification<T>::on_next = notification<T>::on_next_factory();
-
-template<class T>
-//static
-RXCPP_SELECT_ANY const typename notification<T>::on_completed_factory notification<T>::on_completed = notification<T>::on_completed_factory();
-
-template<class T>
-//static
-RXCPP_SELECT_ANY const typename notification<T>::on_error_factory notification<T>::on_error = notification<T>::on_error_factory();
 
 template<class T>
 bool operator == (const std::shared_ptr<detail::notification_base<T>>& lhs, const std::shared_ptr<detail::notification_base<T>>& rhs) {

@@ -11,29 +11,23 @@ namespace rxcpp {
 
 struct tag_coordinator {};
 struct coordinator_base {typedef tag_coordinator coordinator_tag;};
+
+template<class T, class C = rxu::types_checked>
+struct is_coordinator : public std::false_type {};
+
 template<class T>
-class is_coordinator
-{
-    template<class C>
-    static typename C::coordinator_tag* check(int);
-    template<class C>
-    static void check(...);
-public:
-    static const bool value = std::is_convertible<decltype(check<typename std::decay<T>::type>(0)), tag_coordinator*>::value;
-};
+struct is_coordinator<T, typename rxu::types_checked_from<typename T::coordinator_tag>::type>
+    : public std::is_convertible<typename T::coordinator_tag*, tag_coordinator*> {};
 
 struct tag_coordination {};
 struct coordination_base {typedef tag_coordination coordination_tag;};
+
+template<class T, class C = rxu::types_checked>
+struct is_coordination : public std::false_type {};
+
 template<class T>
-class is_coordination
-{
-    template<class C>
-    static typename C::coordination_tag* check(int);
-    template<class C>
-    static void check(...);
-public:
-    static const bool value = std::is_convertible<decltype(check<typename std::decay<T>::type>(0)), tag_coordination*>::value;
-};
+struct is_coordination<T, typename rxu::types_checked_from<typename T::coordination_tag>::type>
+    : public std::is_convertible<typename T::coordination_tag*, tag_coordination*> {};
 
 template<class Input>
 class coordinator : public coordinator_base
@@ -131,17 +125,17 @@ class identity_one_worker : public coordination_base
         template<class Observable>
         auto in(Observable o) const
             -> Observable {
-            return std::move(o);
+            return o;
         }
         template<class Subscriber>
         auto out(Subscriber s) const
             -> Subscriber {
-            return std::move(s);
+            return s;
         }
         template<class F>
         auto act(F f) const
             -> F {
-            return std::move(f);
+            return f;
         }
     };
 
@@ -168,6 +162,11 @@ inline identity_one_worker identity_immediate() {
 
 inline identity_one_worker identity_current_thread() {
     static identity_one_worker r(rxsc::make_current_thread());
+    return r;
+}
+
+inline identity_one_worker identity_same_worker(rxsc::worker w) {
+    static identity_one_worker r(rxsc::make_same_worker(w));
     return r;
 }
 
@@ -199,7 +198,7 @@ class serialize_one_worker : public coordination_base
     struct serialize_observer
     {
         typedef serialize_observer<Observer> this_type;
-        typedef typename std::decay<Observer>::type dest_type;
+        typedef rxu::decay_t<Observer> dest_type;
         typedef typename dest_type::value_type value_type;
         typedef observer<value_type, this_type> observer_type;
         dest_type dest;
@@ -256,7 +255,7 @@ class serialize_one_worker : public coordination_base
         template<class Observable>
         auto in(Observable o) const
             -> Observable {
-            return std::move(o);
+            return o;
         }
         template<class Subscriber>
         auto out(const Subscriber& s) const
@@ -297,6 +296,10 @@ inline serialize_one_worker serialize_new_thread() {
     return r;
 }
 
+inline serialize_one_worker serialize_same_worker(rxsc::worker w) {
+    static serialize_one_worker r(rxsc::make_same_worker(w));
+    return r;
+}
 
 }
 
